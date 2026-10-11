@@ -22,13 +22,12 @@ let mcBot = null;
 function createMinecraftBot() {
     console.log(`[Minecraft] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
 
-    mcBot = mineflayer.createBot({
-        host: MC_HOST,
-        port: MC_PORT,
-        username: MC_USERNAME,
-        version: '1.26.3',
-        auth: 'offline' // Aternos cracked/TLauncher সার্ভারের জন্য প্রয়োজনীয়
-    });
+mcBot = mineflayer.createBot({
+    host: MC_HOST,
+    port: MC_PORT,
+    username: MC_USERNAME,
+    auth: 'offline' // version লাইনটি এখানে বাদ দেওয়া হয়েছে
+});
 
     // বট সম্পূর্ণ গেমের ভিতর স্পন হওয়ার পর Anti-AFK চালু হবে
     mcBot.once('spawn', () => {
