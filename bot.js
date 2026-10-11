@@ -22,11 +22,12 @@ let mcBot = null;
 function createMinecraftBot() {
   console.log(`[Minecraft] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
 
-  mcBot = mineflayer.createBot({
+mcBot = mineflayer.createBot({
     host: MC_HOST,
     port: MC_PORT,
-    username: MC_USERNAME
-  });
+    username: MC_USERNAME,
+    version: '1.20.3'
+});
 
   mcBot.on('spawn', () => {
     console.log('[Minecraft] Bot successfully joined the server!');
