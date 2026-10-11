@@ -22,42 +22,43 @@ let mcBot = null;
 function createMinecraftBot() {
     console.log(`[Minecraft] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
 
-mcBot = mineflayer.createBot({
+    mcBot = mineflayer.createBot({
         host: MC_HOST,
         port: MC_PORT,
         username: MC_USERNAME,
-        auth: 'offline',
-        version: '1.20.1' // অথবা আপনার সার্ভার যে মূল মাইনক্রাফট ভার্সন বেসে চলছে (যেমন 1.20.1, 1.21 ইত্যাদি) সেটি এখানে বসিয়ে দিন
+        version: '1.20.3', // আপনার ভার্সনের সঠিক প্রটোকল ট্যাগ
+        auth: 'offline',   // ক্র্যাকড বা Aternos সার্ভারের জন্য আবশ্যক
+        checkTimeoutInterval: 60000 // টাইমআউট সময় বাড়িয়ে দেওয়া হলো যাতে সার্ভার সহজে কিক না করে
     });
 
-    // বট গেমের ভেতর সম্পূর্ণ লোড হওয়ার পর
+    // বট সার্ভারে পুরোপুরি প্রবেশ করার পর কোনো নড়াচড়া বা মুভমেন্ট প্যাকেট যেন ত্রুটি না ঘটায়
     mcBot.once('spawn', () => {
         console.log('[Minecraft] Bot successfully spawned in world!');
 
-        // Anti-AFK: প্রতি ৩ মিনিট পরপর একবার লাফাবে
-        const afkInterval = setInterval(() => {
-            if (mcBot && mcBot.entity) {
-                mcBot.setControlState('jump', true);
-                setTimeout(() => {
-                    if (mcBot) mcBot.setControlState('jump', false);
-                }, 500);
-            } else {
-                clearInterval(afkInterval);
-            }
-        }, 180000);
+        // বট স্পন হওয়ার অন্তত ১০ সেকেন্ড পর প্রথম মুভমেন্ট বা জাম্প শুরু করবে
+        setTimeout(() => {
+            setInterval(() => {
+                if (mcBot && mcBot.entity) {
+                    mcBot.setControlState('jump', true);
+                    setTimeout(() => {
+                        mcBot.setControlState('jump', false);
+                    }, 500);
+                }
+            }, 180000); // প্রতি ৩ মিনিট পর পর এন্টি-এএফকে জাম্প
+        }, 10000);
     });
 
-    // কিক বা ডিসকানেক্ট হলে রিকানেক্ট করা
+    // কিক বা ডিসকানেক্ট হলে যাতে সার্ভার ওভারলোডেড না হয়ে ৫ সেকেন্ড পর স্মুথলি রি-কানেক্ট করে
     mcBot.on('end', (reason) => {
-        console.log(`[Minecraft] Bot disconnected (Reason: ${reason}). Reconnecting in 15 seconds...`);
-        mcBot = null;
-        setTimeout(createMinecraftBot, 15000);
+        console.log(`[Minecraft] Bot disconnected. Reason: ${reason}. Reconnecting in 5 seconds...`);
+        setTimeout(createMinecraftBot, 5000);
     });
 
     mcBot.on('error', (err) => {
         console.error('[Minecraft] Error encountered:', err.message);
     });
 }
+
 
 // Discord Client Event Handlers
 client.once('ready', () => {
