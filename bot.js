@@ -22,12 +22,12 @@ let mcBot = null;
 function createMinecraftBot() {
     console.log(`[Minecraft] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
 
-    mcBot = mineflayer.createBot({
+mcBot = mineflayer.createBot({
         host: MC_HOST,
         port: MC_PORT,
         username: MC_USERNAME,
-        auth: 'offline'
-        // 'version' লাইনটি এখান থেকে সম্পূর্ণ মুছে দেওয়া হয়েছে, যাতে এটি অটো-ডিটেক্ট করতে পারে
+        auth: 'offline',
+        version: '1.20.4' // অথবা আপনার সার্ভার যে মূল মাইনক্রাফট ভার্সন বেসে চলছে (যেমন 1.20.1, 1.21 ইত্যাদি) সেটি এখানে বসিয়ে দিন
     });
 
     // বট গেমের ভেতর সম্পূর্ণ লোড হওয়ার পর
