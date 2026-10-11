@@ -26,7 +26,7 @@ function createMinecraftBot() {
         host: MC_HOST,
         port: MC_PORT,
         username: MC_USERNAME,
-        version: '1.20.3',
+        version: '1.26.3',
         auth: 'offline' // Aternos cracked/TLauncher সার্ভারের জন্য প্রয়োজনীয়
     });
 
