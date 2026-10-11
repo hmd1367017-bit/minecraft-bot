@@ -20,35 +20,39 @@ const client = new Client({
 let mcBot = null;
 
 function createMinecraftBot() {
-  console.log(`[Minecraft] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
+    console.log(`[Minecraft] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
 
-mcBot = mineflayer.createBot({
-    host: MC_HOST,
-    port: MC_PORT,
-    username: MC_USERNAME,
-    version: '1.20.3'
-});
+    mcBot = mineflayer.createBot({
+        host: MC_HOST,
+        port: MC_PORT,
+        username: MC_USERNAME,
+        version: '1.20.3',
+        auth: 'offline' // Aternos cracked/TLauncher সার্ভারের জন্য প্রয়োজনীয়
+    });
 
-  mcBot.on('spawn', () => {
-    console.log('[Minecraft] Bot successfully joined the server!');
-    
-    // Anti-AFK Kick Mechanism (Anti-idle jump every 5 minutes)
-    setInterval(() => {
-      if (mcBot) {
-        mcBot.setControlState('jump', true);
-        setTimeout(() => mcBot.setControlState('jump', false), 500);
-      }
-    }, 300000);
-  });
+    // বট সম্পূর্ণ গেমের ভিতর স্পন হওয়ার পর Anti-AFK চালু হবে
+    mcBot.once('spawn', () => {
+        console.log('[Minecraft] Bot successfully spawned in world!');
 
-  mcBot.on('end', () => {
-    console.log('[Minecraft] Bot disconnected. Reconnecting in 10 seconds...');
-    setTimeout(createMinecraftBot, 10000);
-  });
+        // প্রতি ৩ মিনিট পর পর একবার লাফাবে (যাতে AFK কিক না করে)
+        setInterval(() => {
+            if (mcBot) {
+                mcBot.setControlState('jump', true);
+                setTimeout(() => {
+                    mcBot.setControlState('jump', false);
+                }, 500);
+            }
+        }, 180000);
+    });
 
-  mcBot.on('error', (err) => {
-    console.error('[Minecraft] Error encountered:', err.message);
-  });
+    mcBot.on('end', () => {
+        console.log('[Minecraft] Bot disconnected. Reconnecting in 10 seconds...');
+        setTimeout(createMinecraftBot, 10000);
+    });
+
+    mcBot.on('error', (err) => {
+        console.error('[Minecraft] Error encountered:', err.message);
+    });
 }
 
 // Discord Client Event Handlers
