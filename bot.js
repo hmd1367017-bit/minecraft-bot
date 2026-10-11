@@ -22,31 +22,36 @@ let mcBot = null;
 function createMinecraftBot() {
     console.log(`[Minecraft] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
 
-mcBot = mineflayer.createBot({
-    host: MC_HOST,
-    port: MC_PORT,
-    username: MC_USERNAME,
-    auth: 'offline' // version লাইনটি এখানে বাদ দেওয়া হয়েছে
-});
+    mcBot = mineflayer.createBot({
+        host: MC_HOST,
+        port: MC_PORT,
+        username: MC_USERNAME,
+        auth: 'offline'
+        // 'version' লাইনটি এখান থেকে সম্পূর্ণ মুছে দেওয়া হয়েছে, যাতে এটি অটো-ডিটেক্ট করতে পারে
+    });
 
-    // বট সম্পূর্ণ গেমের ভিতর স্পন হওয়ার পর Anti-AFK চালু হবে
+    // বট গেমের ভেতর সম্পূর্ণ লোড হওয়ার পর
     mcBot.once('spawn', () => {
         console.log('[Minecraft] Bot successfully spawned in world!');
 
-        // প্রতি ৩ মিনিট পর পর একবার লাফাবে (যাতে AFK কিক না করে)
-        setInterval(() => {
-            if (mcBot) {
+        // Anti-AFK: প্রতি ৩ মিনিট পরপর একবার লাফাবে
+        const afkInterval = setInterval(() => {
+            if (mcBot && mcBot.entity) {
                 mcBot.setControlState('jump', true);
                 setTimeout(() => {
-                    mcBot.setControlState('jump', false);
+                    if (mcBot) mcBot.setControlState('jump', false);
                 }, 500);
+            } else {
+                clearInterval(afkInterval);
             }
         }, 180000);
     });
 
-    mcBot.on('end', () => {
-        console.log('[Minecraft] Bot disconnected. Reconnecting in 10 seconds...');
-        setTimeout(createMinecraftBot, 10000);
+    // কিক বা ডিসকানেক্ট হলে রিকানেক্ট করা
+    mcBot.on('end', (reason) => {
+        console.log(`[Minecraft] Bot disconnected (Reason: ${reason}). Reconnecting in 15 seconds...`);
+        mcBot = null;
+        setTimeout(createMinecraftBot, 15000);
     });
 
     mcBot.on('error', (err) => {
