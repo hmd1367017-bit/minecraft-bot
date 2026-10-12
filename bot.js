@@ -6,7 +6,7 @@ const mineflayer = require('mineflayer');
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const MC_HOST = process.env.MC_HOST || 'axccorporation.aternos.me';
 const MC_PORT = parseInt(process.env.MC_PORT, 10) || 25337;
-const MC_USERNAME = process.env.MC_USERNAME || 'DiscordBot';
+const MC_USERNAME = process.env.MC_USERNAME || 'MANAGER_OF_DISCORD';
 
 // Discord Client Setup
 const client = new Client({
