@@ -4,8 +4,8 @@ const mineflayer = require('mineflayer');
 
 // Environment Variables Configuration
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const MC_HOST = process.env.MC_HOST || 'axccorporation.aternos.me';
-const MC_PORT = parseInt(process.env.MC_PORT, 10) || 25337;
+const MC_HOST = process.env.MC_HOST || 'bdtopsmp.aternos.me';
+const MC_PORT = parseInt(process.env.MC_PORT, 10) || 48115;
 const MC_USERNAME = process.env.MC_USERNAME || 'MANAGER_1734';
 
 // Discord Client Setup
