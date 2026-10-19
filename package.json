@@ -1,10 +1,10 @@
 {
   "name": "minecraft-discord-afk-bot",
   "version": "1.0.0",
-  "description": "24/7 Minecraft AFK Bot integrated with Discord Control",
+  "description": "24/7 Minecraft AFK Bot integrated with Discord Control and Player Counter",
   "main": "bot.js",
   "scripts": {
-    "start": "node bot.js & node minecraft.js"
+    "start": "node bot.js"
   },
   "dependencies": {
     "discord.js": "^14.14.0",
