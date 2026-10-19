@@ -43,7 +43,7 @@ function createMinecraftBot() {
         // Anti-AFK Jump (Every 3 minutes)
         setTimeout(() => {
             setInterval(() => {
-                if (mcBot && mcBot.entity) {
+                if (mcBot && mcBot.entity && isServerOnline) {
                     mcBot.setControlState('jump', true);
                     setTimeout(() => {
                         mcBot.setControlState('jump', false);
@@ -53,23 +53,34 @@ function createMinecraftBot() {
         }, 10000);
     });
 
-    // কেউ সার্ভারে প্রবেশ করলে সাথে সাথে কাউন্ট আপডেট হবে
+    // কেউ সার্ভারে প্রবেশ করলে
     mcBot.on('playerJoined', (player) => {
         console.log(`[Minecraft] Player joined: ${player.username}`);
-        updateVoiceChannel();
+        if (isServerOnline) {
+            setTimeout(updateVoiceChannel, 1000);
+        }
     });
 
-    // কেউ সার্ভার থেকে বের হয়ে গেলে সাথে সাথে কাউন্ট আপডেট হবে
+    // কেউ সার্ভার থেকে বের হয়ে গেলে
     mcBot.on('playerLeft', (player) => {
         console.log(`[Minecraft] Player left: ${player.username}`);
-        updateVoiceChannel();
+        if (isServerOnline) {
+            setTimeout(updateVoiceChannel, 1000);
+        }
     });
 
-    // সার্ভার বন্ধ বা ডিসকানেক্ট হলে
+    // সার্ভার বন্ধ বা ডিসকানেক্ট হলে তাৎক্ষণিক অফলাইন সেট করা
     mcBot.on('end', (reason) => {
-        console.log(`[Minecraft AFK Bot] Bot disconnected. Reason: ${reason}. Reconnecting in 5 seconds...`);
+        console.log(`[Minecraft AFK Bot] Bot disconnected. Reason: ${reason}.`);
         isServerOnline = false;
+        
+        if (mcBot) {
+            mcBot.players = {};
+        }
+
         updateVoiceChannel();
+
+        // ৫ সেকেন্ড পর রি-কানেক্টের চেষ্টা করবে
         setTimeout(createMinecraftBot, 5000);
     });
 
@@ -77,6 +88,9 @@ function createMinecraftBot() {
     mcBot.on('error', (err) => {
         console.error('[Minecraft AFK Bot] Error encountered:', err.message);
         isServerOnline = false;
+        if (mcBot) {
+            mcBot.players = {};
+        }
         updateVoiceChannel();
     });
 }
@@ -84,21 +98,23 @@ function createMinecraftBot() {
 // ================= [ VOICE CHANNEL UPDATER ] =================
 async function updateVoiceChannel() {
   try {
-    if (!VOICE_CHANNEL_ID) {
-      console.error('[Error] VOICE_CHANNEL_ID is missing in Environment Variables!');
-      return;
-    }
+    if (!VOICE_CHANNEL_ID) return;
 
     const channel = await client.channels.fetch(VOICE_CHANNEL_ID);
     if (!channel) return;
 
     let newName = '';
-    if (isServerOnline && mcBot && mcBot.players) {
-      // সার্ভার অন থাকলে ভেতরে থাকা মোট প্লেয়ার সংখ্যা দেখাবে (বট সহ)
-      const onlineCount = Object.keys(mcBot.players).length;
-      newName = `🔵┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : Online - ${onlineCount}`;
+    
+    // সার্ভার অনলাইন এবং বট যদি সত্যিকার অর্থেই ওয়ার্ল্ডে স্পন হয়ে থাকে
+    if (isServerOnline && mcBot && mcBot.entity) {
+      const playerKeys = mcBot.players ? Object.keys(mcBot.players) : [];
+      const onlineCount = playerKeys.length > 0 ? playerKeys.length : 1;
+      
+      // আপনার মূল ফন্ট ও স্টাইল অনুযায়ী 𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 ব্যবহার করা হয়েছে
+      newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online - ${onlineCount}`;
     } else {
-      newName = `🔴┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : Offline`;
+      // সার্ভার অফলাইন থাকলে
+      newName = `🔴┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Offline`;
     }
 
     if (lastStatus !== newName) {
@@ -110,6 +126,14 @@ async function updateVoiceChannel() {
     console.error('[Discord Error] Failed to update voice channel:', error.message);
   }
 }
+
+// ৩০ সেকেন্ড পর পর ব্যাকগ্রাউন্ডে স্টেট চেক করবে
+setInterval(() => {
+    if (isServerOnline && mcBot && !mcBot.entity) {
+        isServerOnline = false;
+        updateVoiceChannel();
+    }
+}, 30000);
 
 // ================= [ DISCORD EVENTS ] =================
 client.once('ready', () => {
