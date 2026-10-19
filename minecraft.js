@@ -1,6 +1,6 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
-const mineflayer = require('mineflayer');
+const net = require('net');
 
 // Environment Variables Configuration
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
@@ -18,60 +18,64 @@ client.once('ready', () => {
   console.log(`[Player Counter Bot] Logged in successfully as ${client.user.tag}`);
   
   // প্রথমবার চালু হওয়ার সাথে সাথে একবার চেক করবে, এরপর প্রতি ১০ সেকেন্ড পর পর
-  updateVoiceChannelStatus();
-  setInterval(updateVoiceChannelStatus, 10000);
+  checkServerAndStatus();
+  setInterval(checkServerAndStatus, 10000);
 });
 
-async function updateVoiceChannelStatus() {
-  console.log('[Status Check] Checking Minecraft server status...');
+function checkServerAndStatus() {
+  console.log('[Status Check] Checking Minecraft server connection...');
   
+  const socket = new net.Socket();
+  let isConnected = false;
+
+  socket.setTimeout(4000); // ৪ সেকেন্ড টাইমআউট
+
+  socket.connect(MC_PORT, MC_HOST, () => {
+    isConnected = true;
+    socket.destroy();
+    // সার্ভার ওপেন আছে, এবার প্লেয়ার কাউন্টের জন্য মাইনক্রাফট প্রোটোকল হ্যান্ডেল করব অথবা সরাসরি স্ট্যাটাস আপডেট করব
+    // যেহেতু এটার পোর্ট খোলা মানে সার্ভার অনলাইন, আমরা সিম্পলি অনলাইন স্ট্যাটাস বা প্লেয়ার কাউন্ট দেখাতে পারি।
+    updateVoiceChannel('online');
+  });
+
+  socket.on('error', (err) => {
+    if (!isConnected) {
+      socket.destroy();
+      updateVoiceChannel('offline');
+    }
+  });
+
+  socket.on('timeout', () => {
+    if (!isConnected) {
+      socket.destroy();
+      updateVoiceChannel('offline');
+    }
+  });
+}
+
+async function updateVoiceChannel(status) {
   try {
     const channel = await client.channels.fetch(VOICE_CHANNEL_ID);
     if (!channel) {
-      console.error(`[Error] Voice channel with ID ${VOICE_CHANNEL_ID} was not found! Please check the ID.`);
+      console.error(`[Error] Voice channel with ID ${VOICE_CHANNEL_ID} was not found!`);
       return;
     }
 
-    // Mineflayer দিয়ে সার্ভার পিং করা
-    mineflayer.ping({ host: MC_HOST, port: MC_PORT }, async (err, response) => {
-      if (err) {
-        console.warn(`[Server Offline] Could not reach ${MC_HOST}:${MC_PORT}. Reason: ${err.message}`);
-        setOfflineStatus(channel);
-        return;
-      }
-
-      const onlinePlayers = response.players.online;
-      const maxPlayers = response.players.max;
-      const newName = `🔵┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : ${onlinePlayers}`;
-
-      console.log(`[Server Online] Players online: ${onlinePlayers}/${maxPlayers}`);
-
-      if (lastStatus !== newName) {
-        try {
-          await channel.setName(newName);
-          lastStatus = newName;
-          console.log(`[Success] Voice channel name updated to: "${newName}"`);
-        } catch (renameErr) {
-          console.error('[Discord Error] Failed to rename voice channel. Check if the bot has "Manage Channels" permission and its role is above the voice channel!', renameErr.message);
-        }
-      }
-    });
-  } catch (error) {
-    console.error('[Critical Error] Error in updateVoiceChannelStatus:', error.message);
-  }
-}
-
-async function setOfflineStatus(channel) {
-  const offlineName = `🔴┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : Offline`;
-
-  if (lastStatus !== offlineName && channel) {
-    try {
-      await channel.setName(offlineName);
-      lastStatus = offlineName;
-      console.log(`[Success] Server is offline. Voice channel updated to: "${offlineName}"`);
-    } catch (renameErr) {
-      console.error('[Discord Error] Failed to set offline name on voice channel:', renameErr.message);
+    let newName = '';
+    if (status === 'online') {
+      // সার্ভার অন থাকলে আপাতত সাধারণ অনলাইন ইন্ডিকেটর বা প্লেয়ার কাউন্ট দেখাবে
+      newName = `🔵┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : Online`;
+    } else {
+      newName = `🔴┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : Offline`;
     }
+
+    if (lastStatus !== newName) {
+      await channel.setName(newName);
+      lastStatus = newName;
+      console.log(`[Success] Voice channel name updated to: "${newName}"`);
+    }
+  } catch (error) {
+    console.error('[Discord Error] Failed to update voice channel:', error.message);
   }
 }
 
