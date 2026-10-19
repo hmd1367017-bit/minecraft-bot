@@ -35,7 +35,7 @@ function createMinecraftBot() {
     }
 
     isBotSpawned = false;
-    updateVoiceChannel(); 
+    // কানেক্ট হওয়ার চেষ্টার সময় ফ্লাডিং রোধ করতে সরাসরি অফলাইন সেট না করে শুধু স্ট্যাটাস ভ্যালিডেশন রাখা হলো
 
     try {
         mcBot = mineflayer.createBot({
@@ -44,7 +44,7 @@ function createMinecraftBot() {
             username: MC_USERNAME,
             version: '1.20.3', 
             auth: 'offline',   
-            checkTimeoutInterval: 60000 // টাইমআউট ইন্টারভাল বাড়িয়ে দেওয়া হলো যাতে সহজে ডিসকানেক্ট না হয়
+            checkTimeoutInterval: 60000 
         });
     } catch (err) {
         console.error('[Minecraft AFK Bot] Creation Error:', err.message);
@@ -57,7 +57,11 @@ function createMinecraftBot() {
     mcBot.once('spawn', () => {
         console.log('[Minecraft AFK Bot] Bot successfully spawned in world!');
         isBotSpawned = true;
-        updateVoiceChannel();
+        
+        // স্পন হওয়ার সাথে সাথে এক সেকেন্ডের মধ্যে নিশ্চিতভাবে অনলাইন স্ট্যাটাস আপডেট করবে
+        setTimeout(() => {
+            updateVoiceChannel();
+        }, 500);
 
         // Anti-AFK Jump (প্রতি ৩ মিনিট পর পর)
         setTimeout(() => {
@@ -105,7 +109,6 @@ function createMinecraftBot() {
 
     mcBot.on('error', (err) => {
         console.error('[Minecraft AFK Bot] Error encountered:', err.message);
-        // শুধুমাত্র সাধারণ এররে সাথে সাথে অফলাইন না করে বটের স্পন স্ট্যাটাস বজায় রাখা হলো
     });
 }
 
@@ -145,8 +148,7 @@ async function updateVoiceChannel() {
       newName = `🔴┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Offline`;
     }
 
-    // অত্যন্ত কঠোর চেক: নাম যদি ইতিমধ্যে বর্তমান নামের সাথে হুবহু মিলে যায়, 
-    // তবে ডিসকর্ডে কোনো প্রকার রিকোয়েস্ট পাঠানো হবে না (কোনো স্প্যাম বা বারবার এডিট হবে না)
+    // নাম যদি ইতিমধ্যে বর্তমান নামের সাথে হুবহু মিলে যায়, তবে কোনো রিকোয়েস্ট পাঠানো হবে না
     if (lastStatus !== newName) {
       try {
         await channel.setName(newName);
