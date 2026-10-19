@@ -11,37 +11,44 @@ const MC_USERNAME = process.env.MC_USERNAME || 'MANAGER_1734';
 
 // Discord Client Setup
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent
+    ]
 });
 
 let mcBot = null;
 let isBotSpawned = false;
 let lastStatus = null;
+let reconnectTimeout = null;
 
 // ================= [ AFK BOT LOGIC ] =================
 function createMinecraftBot() {
     console.log(`[Minecraft AFK Bot] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
 
     if (mcBot) {
-        try { mcBot.quit(); } catch (e) {}
+        try { mcBot.removeAllListeners(); mcBot.quit(); } catch (e) {}
         mcBot = null;
     }
 
     isBotSpawned = false;
     updateVoiceChannel(); // সার্ভার অফ বা ডিসকানেক্টেড থাকলে সাথে সাথে অফলাইন দেখাবে
 
-    mcBot = mineflayer.createBot({
-        host: MC_HOST,
-        port: MC_PORT,
-        username: MC_USERNAME,
-        version: '1.20.3', 
-        auth: 'offline',   
-        checkTimeoutInterval: 30000 
-    });
+    try {
+        mcBot = mineflayer.createBot({
+            host: MC_HOST,
+            port: MC_PORT,
+            username: MC_USERNAME,
+            version: '1.20.3', 
+            auth: 'offline',   
+            checkTimeoutInterval: 30000 
+        });
+    } catch (err) {
+        console.error('[Minecraft AFK Bot] Creation Error:', err.message);
+        scheduleReconnect();
+        return;
+    }
 
     // বট সফলভাবে সার্ভারে স্পন হলেই ধরে নেব সার্ভার অনলাইন
     mcBot.once('spawn', () => {
@@ -51,33 +58,29 @@ function createMinecraftBot() {
 
         // Anti-AFK Jump (প্রতি ৩ মিনিট পর পর)
         setTimeout(() => {
-            setInterval(() => {
-                if (mcBot && mcBot.entity && isBotSpawned) {
-                    mcBot.setControlState('jump', true);
-                    setTimeout(() => {
-                        mcBot.setControlState('jump', false);
-                    }, 500);
+            const afkInterval = setInterval(() => {
+                if (!isBotSpawned || !mcBot) {
+                    clearInterval(afkInterval);
+                    return;
                 }
+                try {
+                    if (mcBot.entity) {
+                        mcBot.setControlState('jump', true);
+                        setTimeout(() => {
+                            if (mcBot) mcBot.setControlState('jump', false);
+                        }, 500);
+                    }
+                } catch (e) {}
             }, 180000);
         }, 10000);
     });
 
-    // কেউ সার্ভারে আসলে বা গেলে
-    mcBot.on('playerJoined', () => {
-        if (isBotSpawned) updateVoiceChannel();
-    });
-
-    mcBot.on('playerLeft', () => {
-        if (isBotSpawned) updateVoiceChannel();
-    });
-
     // সার্ভার বন্ধ হলে বা কিক খেলে
     mcBot.on('end', (reason) => {
-        console.log(`[Minecraft AFK Bot] Disconnected. Reason: ${reason}. Retrying in 10 seconds...`);
+        console.log(`[Minecraft AFK Bot] Disconnected. Reason: ${reason}.`);
         isBotSpawned = false;
         updateVoiceChannel(); // তাৎক্ষণিক অফলাইন আপডেট করবে
-        
-        setTimeout(createMinecraftBot, 10000);
+        scheduleReconnect();
     });
 
     mcBot.on('error', (err) => {
@@ -85,6 +88,13 @@ function createMinecraftBot() {
         isBotSpawned = false;
         updateVoiceChannel();
     });
+}
+
+function scheduleReconnect() {
+    if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    reconnectTimeout = setTimeout(() => {
+        createMinecraftBot();
+    }, 10000);
 }
 
 // ================= [ VOICE CHANNEL UPDATER ] =================
@@ -97,20 +107,19 @@ async function updateVoiceChannel() {
 
     let newName = '';
     
-    // যদি বট স্পন হয়ে থাকে এবং বটের এন্ট্রিতি ওয়ার্ল্ডে থাকে
+    // যদি বট স্পন হয়ে থাকে এবং বটের এন্ট্রিতি ওয়ার্ল্ডে থাকে
     if (isBotSpawned && mcBot && mcBot.entity) {
-      // সেফটি চেকের জন্য প্লেয়ার লিস্ট ফেচ করা
       const playersObj = mcBot.players || {};
       const playerUsernames = Object.keys(playersObj);
       
-      // বট নিজের নাম বা ইউজারনেম বাদ দিয়ে বাকি আসল প্লেয়ারদের গুনবে
+      // বট নিজের নাম বা ইউজারনেম বাদ দিয়ে বাকি আসল প্লেয়ারদের গুনবে
       const realPlayers = playerUsernames.filter(
-        (username) => username.toLowerCase() !== MC_USERNAME.toLowerCase()
+        (username) => username && username.toLowerCase() !== MC_USERNAME.toLowerCase()
       );
       
       const realCount = realPlayers.length;
 
-      // শর্ত অনুযায়ী ফর্মেট
+      // শর্ত অনুযায়ী ফর্মেট
       if (realCount === 0) {
         newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online`;
       } else {
@@ -131,11 +140,9 @@ async function updateVoiceChannel() {
   }
 }
 
-// প্রতি ১০ সেকেন্ড পর পর সুপার-ফাস্ট চেকার লুপ (সার্ভার অন করার সাথে সাথেই যেন ধরে ফেলতে পারে)
+// নিয়মিত চেকার লুপ (প্লেয়ার ঢোকা/বের হওয়া বা সার্ভার অন/অফ তৎক্ষণাৎ ট্র্যাক করার জন্য)
 setInterval(() => {
-    if (isBotSpawned && mcBot && mcBot.entity) {
-        updateVoiceChannel();
-    }
+    updateVoiceChannel();
 }, 10000);
 
 // ================= [ DISCORD EVENTS ] =================
