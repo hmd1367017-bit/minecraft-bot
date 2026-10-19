@@ -11,23 +11,20 @@ const MC_USERNAME = process.env.MC_USERNAME || 'MANAGER_1734';
 
 // Discord Client Setup
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent
+    ]
 });
 
 let mcBot = null;
 let isBotSpawned = false;
 let lastStatus = null;
+let reconnectTimeout = null;
 
 // ================= [ MINECRAFT BOT LOGIC ] =================
 function createMinecraftBot() {
-    console.log(`[Minecraft] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
-    isBotSpawned = false;
-    updateVoiceChannel(); // কানেক্ট করার চেষ্টার সময় অফলাইন স্ট্যাটাস সেট করবে
-
     if (mcBot) {
         try {
             mcBot.removeAllListeners();
@@ -36,19 +33,23 @@ function createMinecraftBot() {
         mcBot = null;
     }
 
+    console.log(`[Minecraft] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
+    isBotSpawned = false;
+    updateVoiceChannel(); // কানেক্ট করার চেষ্টার শুরুতেই অফলাইন স্ট্যাটাস দেখাবে
+
     mcBot = mineflayer.createBot({
         host: MC_HOST,
         port: MC_PORT,
         username: MC_USERNAME,
-        version: '1.20.3', 
+        version: '1.20.3',  
         auth: 'offline',   
-        checkTimeoutInterval: 60000 
+        checkTimeoutInterval: 10000 // টাইমআউট ১০ সেকেন্ড করা হলো যাতে দ্রুত বুঝতে পারে
     });
 
     mcBot.once('spawn', () => {
         console.log('[Minecraft] Bot successfully spawned in world!');
         isBotSpawned = true;
-        updateVoiceChannel(); // স্পন হওয়ার সাথে সাথে অনলাইন আপডেট করবে
+        updateVoiceChannel(); // স্পন হওয়ার সাথে সাথে অনলাইন আপডেট করবে
 
         // Anti-AFK Jump
         setTimeout(() => {
@@ -65,11 +66,10 @@ function createMinecraftBot() {
                         }, 500);
                     }
                 } catch (e) {}
-            }, 180000); // প্রতি ৩ মিনিট পর পর জাম্প
+            }, 180000); 
         }, 10000);
     });
 
-    // কেউ সার্ভারে আসলে বা গেলে আপডেট করবে
     mcBot.on('playerJoined', () => {
         if (isBotSpawned) updateVoiceChannel();
     });
@@ -83,13 +83,20 @@ function createMinecraftBot() {
         isBotSpawned = false;
         mcBot = null;
         updateVoiceChannel(); // ডিসকানেক্ট হওয়া মাত্র অফলাইন আপডেট করবে
-        setTimeout(createMinecraftBot, 5000);
+        
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = setTimeout(createMinecraftBot, 5000);
     });
 
     mcBot.on('error', (err) => {
         console.error('[Minecraft] Error encountered:', err.message);
         isBotSpawned = false;
         updateVoiceChannel();
+        
+        // যদি কানেক্ট করতে না পেরে এরর দেয়, তবে বটকে কুইট করিয়ে দ্রুত রিট্রাই ফ্লোতে পাঠানো
+        try {
+            if (mcBot) mcBot.quit();
+        } catch(e) {}
     });
 }
 
@@ -103,7 +110,6 @@ async function updateVoiceChannel() {
 
         let newName = '';
 
-        // যদি বট সফলভাবে সার্ভারে স্পন হয়ে থাকে
         if (isBotSpawned && mcBot && mcBot.entity) {
             let realCount = 0;
             try {
@@ -123,11 +129,9 @@ async function updateVoiceChannel() {
                 newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online - ${realCount}`;
             }
         } else {
-            // সার্ভার অফলাইন বা বট ডিসকানেক্টেড থাকলে
             newName = `🔴┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Offline`;
         }
 
-        // অত্যন্ত গুরুত্বপূর্ণ: স্ট্যাটাস যদি আগেরটার মতোই থাকে, তবে ডিসকর্ডে আর কোনো রিকোয়েস্ট পাঠানো হবে না
         if (lastStatus !== newName) {
             await channel.setName(newName);
             lastStatus = newName;
@@ -138,10 +142,10 @@ async function updateVoiceChannel() {
     }
 }
 
-// প্রতি ১০ সেকেন্ড পর পর ব্যাকআপ হিসেবে স্ট্যাটাস চেক করবে (একই থাকলে ডিসকর্ডে হাত দেবে না)
+// প্রতি ৫ সেকেন্ড পর পর স্ট্যাটাস চেক করবে
 setInterval(() => {
     updateVoiceChannel();
-}, 10000);
+}, 5000);
 
 // ================= [ DISCORD EVENTS ] =================
 client.once('ready', () => {
@@ -161,7 +165,6 @@ client.on('messageCreate', (message) => {
   }
 });
 
-// Start Discord Bot
 if (!DISCORD_TOKEN) {
   console.error('[Error] DISCORD_TOKEN is missing in Environment Variables!');
   process.exit(1);
