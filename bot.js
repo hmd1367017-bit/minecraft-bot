@@ -106,7 +106,14 @@ async function updateVoiceChannel() {
       );
       
       const realCount = realPlayers.length;
-      newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online - ${realCount}`;
+
+      // যদি বট বাদে আর কেউ না থাকে, তবে শুধু Online দেখাবে (কোনো সংখ্যা বা ০ দেখাবে না)
+      if (realCount === 0) {
+        newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online`;
+      } else {
+        // কেউ থাকলে সংখ্যাসহ দেখাবে
+        newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online - ${realCount}`;
+      }
     } else {
       // সার্ভার অফলাইন থাকলে বা বট ডিসকানেক্টেড থাকলে
       newName = `🔴┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Offline`;
@@ -122,7 +129,7 @@ async function updateVoiceChannel() {
   }
 }
 
-// অতিরিক্ত সেফটি লুপ: প্রতি ৩০ সেকেন্ড পর পর চেক করবে বট স্পন থাকা সত্ত্বেও স্ট্যাটাস অফলাইন আটকে আছে কি না
+// অতিরিক্ত সেফটি লুপ: প্রতি ৩০ সেকেন্ড পর পর চেক করবে
 setInterval(() => {
     if (isBotSpawned && mcBot && mcBot.entity) {
         updateVoiceChannel();
