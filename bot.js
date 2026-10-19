@@ -27,12 +27,15 @@ function createMinecraftBot() {
     console.log(`[Minecraft AFK Bot] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
 
     if (mcBot) {
-        try { mcBot.quit(); } catch (e) {}
+        try { 
+            mcBot.removeAllListeners();
+            mcBot.quit(); 
+        } catch (e) {}
         mcBot = null;
     }
 
     isBotSpawned = false;
-    updateVoiceChannel(); // সার্ভার অফ বা ডিসকানেক্টেড থাকলে সাথে সাথে অফলাইন দেখাবে
+    updateVoiceChannel(); // বট ডিসকানেক্টেড থাকলে সাথে সাথে অফলাইন দেখাবে
 
     mcBot = mineflayer.createBot({
         host: MC_HOST,
@@ -43,32 +46,29 @@ function createMinecraftBot() {
         checkTimeoutInterval: 30000 
     });
 
-    // বট সফলভাবে সার্ভারে স্পন হলেই ধরে নেব সার্ভার অনলাইন
-    mcBot.once('spawn', () => {
+    // বট সফলভাবে সার্ভারে স্পন হলে
+    mcBot.on('spawn', () => {
         console.log('[Minecraft AFK Bot] Bot successfully spawned in world!');
         isBotSpawned = true;
         updateVoiceChannel(); // সাথে সাথে অনলাইন স্ট্যাটাস আপডেট করবে
 
         // Anti-AFK Jump (প্রতি ৩ মিনিট পর পর)
         setTimeout(() => {
-            setInterval(() => {
-                if (mcBot && mcBot.entity && isBotSpawned) {
-                    mcBot.setControlState('jump', true);
-                    setTimeout(() => {
-                        if (mcBot) mcBot.setControlState('jump', false);
-                    }, 500);
+            const afkInterval = setInterval(() => {
+                if (!isBotSpawned || !mcBot) {
+                    clearInterval(afkInterval);
+                    return;
                 }
+                try {
+                    if (mcBot.entity) {
+                        mcBot.setControlState('jump', true);
+                        setTimeout(() => {
+                            if (mcBot) mcBot.setControlState('jump', false);
+                        }, 500);
+                    }
+                } catch (e) {}
             }, 180000);
         }, 10000);
-    });
-
-    // কেউ সার্ভারে আসলে বা গেলে তাৎক্ষণিক আপডেট করবে
-    mcBot.on('playerJoined', () => {
-        if (isBotSpawned) updateVoiceChannel();
-    });
-
-    mcBot.on('playerLeft', () => {
-        if (isBotSpawned) updateVoiceChannel();
     });
 
     // সার্ভার বন্ধ হলে বা কিক খেলে
@@ -97,17 +97,22 @@ async function updateVoiceChannel() {
 
     let newName = '';
     
-    // যদি বট স্পন হয়ে থাকে এবং বটের এন্ট্রিতি ওয়ার্ল্ডে থাকে
-    if (isBotSpawned && mcBot && mcBot.entity) {
-      const playersObj = mcBot.players || {};
-      const playerUsernames = Object.keys(playersObj);
+    // যদি বট স্পন হয়ে থাকে
+    if (isBotSpawned && mcBot) {
+      let realCount = 0;
       
-      // বট নিজের নাম বা ইউজারনেম বাদ দিয়ে বাকি আসল প্লেয়ারদের গুনবে
-      const realPlayers = playerUsernames.filter(
-        (username) => username && username.toLowerCase() !== MC_USERNAME.toLowerCase()
-      );
-      
-      const realCount = realPlayers.length;
+      // সেফভাবে প্লেয়ার কাউন্ট বের করা
+      try {
+        const playersObj = mcBot.players || {};
+        const playerUsernames = Object.keys(playersObj);
+        
+        const realPlayers = playerUsernames.filter(
+          (username) => username && username.toLowerCase() !== MC_USERNAME.toLowerCase()
+        );
+        realCount = realPlayers.length;
+      } catch (e) {
+        realCount = 0;
+      }
 
       // শর্ত অনুযায়ী ফর্মেট
       if (realCount === 0) {
@@ -130,10 +135,10 @@ async function updateVoiceChannel() {
   }
 }
 
-// ব্যাকগ্রাউন্ড চেকার যা সার্ভার অন বা অফ হওয়া মাত্রই স্ট্যাটাস ধরে ফেলবে
+// ব্যাকগ্রাউন্ড চেকার লুপ যা সবসময় স্ট্যাটাস ঠিক রাখবে
 setInterval(() => {
     updateVoiceChannel();
-}, 5000); // প্রতি ৫ সেকেন্ড পর পর চেক করবে
+}, 5000);
 
 // ================= [ DISCORD EVENTS ] =================
 client.once('ready', () => {
