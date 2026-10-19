@@ -21,21 +21,20 @@ const client = new Client({
 let mcBot = null;
 let isBotSpawned = false;
 let lastStatus = null;
+let reconnectTimer = null;
 
 // ================= [ AFK BOT LOGIC ] =================
 function createMinecraftBot() {
-    console.log(`[Minecraft AFK Bot] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
-
     if (mcBot) {
-        try { 
+        try {
             mcBot.removeAllListeners();
-            mcBot.quit(); 
+            mcBot.quit();
         } catch (e) {}
         mcBot = null;
     }
 
     isBotSpawned = false;
-    // কানেক্ট হওয়ার চেষ্টার সময় ফ্লাডিং রোধ করতে সরাসরি অফলাইন সেট না করে শুধু স্ট্যাটাস ভ্যালিডেশন রাখা হলো
+    console.log(`[Minecraft AFK Bot] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
 
     try {
         mcBot = mineflayer.createBot({
@@ -48,8 +47,7 @@ function createMinecraftBot() {
         });
     } catch (err) {
         console.error('[Minecraft AFK Bot] Creation Error:', err.message);
-        isBotSpawned = false;
-        updateVoiceChannel();
+        scheduleReconnect();
         return;
     }
 
@@ -58,10 +56,8 @@ function createMinecraftBot() {
         console.log('[Minecraft AFK Bot] Bot successfully spawned in world!');
         isBotSpawned = true;
         
-        // স্পন হওয়ার সাথে সাথে এক সেকেন্ডের মধ্যে নিশ্চিতভাবে অনলাইন স্ট্যাটাস আপডেট করবে
-        setTimeout(() => {
-            updateVoiceChannel();
-        }, 500);
+        // স্পন হওয়ার সাথে সাথেই নিশ্চিতভাবে অনলাইন স্ট্যাটাস আপডেট করবে
+        updateVoiceChannel();
 
         // Anti-AFK Jump (প্রতি ৩ মিনিট পর পর)
         setTimeout(() => {
@@ -97,19 +93,26 @@ function createMinecraftBot() {
         }
     });
 
-    // সার্ভার বন্ধ হলে বা রিয়েল ডিসকানেক্ট হলে
+    // সার্ভার বন্ধ হলে বা ডিসকানেক্ট হলে
     mcBot.on('end', (reason) => {
-        console.log(`[Minecraft AFK Bot] Disconnected. Reason: ${reason}. Retrying in 10 seconds...`);
+        console.log(`[Minecraft AFK Bot] Disconnected. Reason: ${reason}.`);
         isBotSpawned = false;
-        mcBot = null; 
-        updateVoiceChannel(); 
-        
-        setTimeout(createMinecraftBot, 10000);
+        mcBot = null;
+        updateVoiceChannel(); // সার্ভার অফলাইন দেখাবে
+        scheduleReconnect();
     });
 
     mcBot.on('error', (err) => {
         console.error('[Minecraft AFK Bot] Error encountered:', err.message);
     });
+}
+
+function scheduleReconnect() {
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    console.log('[Minecraft AFK Bot] Retrying in 10 seconds...');
+    reconnectTimer = setTimeout(() => {
+        createMinecraftBot();
+    }, 10000);
 }
 
 // ================= [ VOICE CHANNEL UPDATER ] =================
@@ -122,17 +125,15 @@ async function updateVoiceChannel() {
 
     let newName = '';
     
-    // যদি বট স্পন হয়ে থাকে এবং বটের এন্ট্রিতি ওয়ার্ল্ডে থাকে
+    // কঠোরভাবে চেক করা হচ্ছে বট একচুয়ালি স্পন অবস্থায় আছে কি না
     if (isBotSpawned && mcBot && mcBot.entity) {
       let realCount = 0;
       try {
         const playersMap = mcBot.players || {};
-        
         const realPlayers = Object.values(playersMap).filter((p) => {
             if (!p || !p.username) return false;
             return p.username.toLowerCase() !== MC_USERNAME.toLowerCase();
         });
-
         realCount = realPlayers.length;
       } catch (err) {
         realCount = 0;
@@ -144,11 +145,11 @@ async function updateVoiceChannel() {
         newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online - ${realCount}`;
       }
     } else {
-      // সার্ভার একচুয়ালি অফলাইন বা বট ডিসকানেক্টেড থাকলে
+      // সার্ভার অফলাইন বা বট স্পন না থাকলে
       newName = `🔴┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Offline`;
     }
 
-    // নাম যদি ইতিমধ্যে বর্তমান নামের সাথে হুবহু মিলে যায়, তবে কোনো রিকোয়েস্ট পাঠানো হবে না
+    // নাম হুবহু এক থাকলে ডিসকর্ডে কোনো রিকোয়েস্ট পাঠানো হবে না
     if (lastStatus !== newName) {
       try {
         await channel.setName(newName);
@@ -163,10 +164,10 @@ async function updateVoiceChannel() {
   }
 }
 
-// ব্যাকগ্রাউন্ড চেকার লুপ: প্রতি ১০ সেকেন্ড পর পর চেক করবে, স্ট্যাটাস এক থাকলে হাত দেবে না
+// ব্যাকগ্রাউন্ড সেফটি লুপ: প্রতি ১৫ সেকেন্ড পর পর স্ট্যাটাস সিঙ্ক রাখবে
 setInterval(() => {
     updateVoiceChannel();
-}, 10000);
+}, 15000);
 
 // ================= [ DISCORD EVENTS ] =================
 client.once('ready', () => {
