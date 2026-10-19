@@ -21,10 +21,13 @@ const client = new Client({
 let mcBot = null;
 let isBotSpawned = false;
 let lastStatus = null;
-let reconnectTimer = null;
 
-// ================= [ AFK BOT LOGIC ] =================
+// ================= [ MINECRAFT BOT LOGIC ] =================
 function createMinecraftBot() {
+    console.log(`[Minecraft] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
+    isBotSpawned = false;
+    updateVoiceChannel(); // কানেক্ট করার চেষ্টার সময় অফলাইন স্ট্যাটাস সেট করবে
+
     if (mcBot) {
         try {
             mcBot.removeAllListeners();
@@ -33,32 +36,21 @@ function createMinecraftBot() {
         mcBot = null;
     }
 
-    isBotSpawned = false;
-    console.log(`[Minecraft AFK Bot] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
-    updateVoiceChannel(); // কানেক্ট করার চেষ্টার সময় বা অফলাইন থাকলে সাথে সাথে অফলাইন আপডেট করবে
+    mcBot = mineflayer.createBot({
+        host: MC_HOST,
+        port: MC_PORT,
+        username: MC_USERNAME,
+        version: '1.20.3', 
+        auth: 'offline',   
+        checkTimeoutInterval: 60000 
+    });
 
-    try {
-        mcBot = mineflayer.createBot({
-            host: MC_HOST,
-            port: MC_PORT,
-            username: MC_USERNAME,
-            version: '1.20.3', 
-            auth: 'offline',   
-            checkTimeoutInterval: 8000 // ৮ সেকেন্ডের বেশি রেসপন্স না পেলে টাইমআউট ধরবে
-        });
-    } catch (err) {
-        console.error('[Minecraft AFK Bot] Creation Error:', err.message);
-        scheduleReconnect();
-        return;
-    }
-
-    // বট সফলভাবে সার্ভারে স্পন হলেই কেবল অনলাইন স্ট্যাটাস চালু হবে
     mcBot.once('spawn', () => {
-        console.log('[Minecraft AFK Bot] Bot successfully spawned in world!');
+        console.log('[Minecraft] Bot successfully spawned in world!');
         isBotSpawned = true;
-        updateVoiceChannel();
+        updateVoiceChannel(); // স্পন হওয়ার সাথে সাথে অনলাইন আপডেট করবে
 
-        // Anti-AFK Jump (প্রতি ৩ মিনিট পর পর)
+        // Anti-AFK Jump
         setTimeout(() => {
             const afkInterval = setInterval(() => {
                 if (!isBotSpawned || !mcBot) {
@@ -66,102 +58,90 @@ function createMinecraftBot() {
                     return;
                 }
                 try {
-                    if (mcBot.entity) {
+                    if (mcBot && mcBot.entity) {
                         mcBot.setControlState('jump', true);
                         setTimeout(() => {
                             if (mcBot) mcBot.setControlState('jump', false);
                         }, 500);
                     }
                 } catch (e) {}
-            }, 180000);
+            }, 180000); // প্রতি ৩ মিনিট পর পর জাম্প
         }, 10000);
     });
 
-    // সার্ভার বন্ধ হলে বা ডিসকানেক্ট হলে তাৎক্ষণিক হ্যান্ডেল করবে
+    // কেউ সার্ভারে আসলে বা গেলে আপডেট করবে
+    mcBot.on('playerJoined', () => {
+        if (isBotSpawned) updateVoiceChannel();
+    });
+
+    mcBot.on('playerLeft', () => {
+        if (isBotSpawned) updateVoiceChannel();
+    });
+
     mcBot.on('end', (reason) => {
-        console.log(`[Minecraft AFK Bot] Disconnected. Reason: ${reason}.`);
-        handleDisconnect();
+        console.log(`[Minecraft] Bot disconnected. Reason: ${reason}. Reconnecting in 5 seconds...`);
+        isBotSpawned = false;
+        mcBot = null;
+        updateVoiceChannel(); // ডিসকানেক্ট হওয়া মাত্র অফলাইন আপডেট করবে
+        setTimeout(createMinecraftBot, 5000);
     });
 
     mcBot.on('error', (err) => {
-        console.error('[Minecraft AFK Bot] Error encountered:', err.message);
-        if (!isBotSpawned) {
-            handleDisconnect();
-        }
+        console.error('[Minecraft] Error encountered:', err.message);
+        isBotSpawned = false;
+        updateVoiceChannel();
     });
 }
 
-function handleDisconnect() {
-    isBotSpawned = false;
-    if (mcBot) {
-        try { mcBot.quit(); } catch (e) {}
-        mcBot = null;
-    }
-    updateVoiceChannel(); // তাৎক্ষণিক অফলাইন আপডেট করবে
-    scheduleReconnect();
-}
-
-function scheduleReconnect() {
-    if (reconnectTimer) clearTimeout(reconnectTimer);
-    console.log('[Minecraft AFK Bot] Retrying in 5 seconds...');
-    reconnectTimer = setTimeout(() => {
-        createMinecraftBot();
-    }, 5000);
-}
-
-// ================= [ VOICE CHANNEL UPDATER ] =================
+// ================= [ VOICE CHANNEL STATUS UPDATER ] =================
 async function updateVoiceChannel() {
-  try {
-    if (!VOICE_CHANNEL_ID) return;
+    try {
+        if (!VOICE_CHANNEL_ID) return;
 
-    const channel = await client.channels.fetch(VOICE_CHANNEL_ID);
-    if (!channel) return;
+        const channel = await client.channels.fetch(VOICE_CHANNEL_ID);
+        if (!channel) return;
 
-    let newName = '';
-    
-    if (isBotSpawned && mcBot && mcBot.entity) {
-      let realCount = 0;
-      try {
-        const playersMap = mcBot.players || {};
-        
-        const realPlayers = Object.values(playersMap).filter((p) => {
-            if (!p || !p.username) return false;
-            if (p.username.toLowerCase() === MC_USERNAME.toLowerCase()) return false;
-            return p.gamemode !== undefined || p.latency !== undefined;
-        });
+        let newName = '';
 
-        realCount = realPlayers.length;
-      } catch (err) {
-        realCount = 0;
-      }
+        // যদি বট সফলভাবে সার্ভারে স্পন হয়ে থাকে
+        if (isBotSpawned && mcBot && mcBot.entity) {
+            let realCount = 0;
+            try {
+                const playersMap = mcBot.players || {};
+                const realPlayers = Object.values(playersMap).filter((p) => {
+                    if (!p || !p.username) return false;
+                    return p.username.toLowerCase() !== MC_USERNAME.toLowerCase();
+                });
+                realCount = realPlayers.length;
+            } catch (err) {
+                realCount = 0;
+            }
 
-      if (realCount === 0) {
-        newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online`;
-      } else {
-        newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online - ${realCount}`;
-      }
-    } else {
-      newName = `🔴┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Offline`;
+            if (realCount === 0) {
+                newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online`;
+            } else {
+                newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online - ${realCount}`;
+            }
+        } else {
+            // সার্ভার অফলাইন বা বট ডিসকানেক্টেড থাকলে
+            newName = `🔴┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Offline`;
+        }
+
+        // অত্যন্ত গুরুত্বপূর্ণ: স্ট্যাটাস যদি আগেরটার মতোই থাকে, তবে ডিসকর্ডে আর কোনো রিকোয়েস্ট পাঠানো হবে না
+        if (lastStatus !== newName) {
+            await channel.setName(newName);
+            lastStatus = newName;
+            console.log(`[Voice Channel] Status updated to: "${newName}"`);
+        }
+    } catch (error) {
+        console.error('[Discord Error] Failed to update voice channel:', error.message);
     }
-
-    if (lastStatus !== newName) {
-      try {
-        await channel.setName(newName);
-        lastStatus = newName;
-        console.log(`[Status Counter] Voice channel successfully updated to: "${newName}"`);
-      } catch (err) {
-        console.error('[Discord Error] Failed to set channel name:', err.message);
-      }
-    }
-  } catch (error) {
-    console.error('[Discord Error] Channel fetch or update error:', error.message);
-  }
 }
 
-// সুপারফাস্ট ব্যাকগ্রাউন্ড চেকার লুপ: প্রতি ৩ সেকেন্ড পর পর সার্ভার ও প্লেয়ার স্ট্যাটাস চেক করে আপডেট করবে
+// প্রতি ১০ সেকেন্ড পর পর ব্যাকআপ হিসেবে স্ট্যাটাস চেক করবে (একই থাকলে ডিসকর্ডে হাত দেবে না)
 setInterval(() => {
     updateVoiceChannel();
-}, 3000);
+}, 10000);
 
 // ================= [ DISCORD EVENTS ] =================
 client.once('ready', () => {
@@ -174,9 +154,9 @@ client.on('messageCreate', (message) => {
 
   if (message.content === '!status') {
     if (isBotSpawned) {
-      message.reply('🟢 **Minecraft Server Status:** Online');
+      message.reply('🟢 **Minecraft AFK Bot Status:** Online');
     } else {
-      message.reply('🔴 **Minecraft Server Status:** Offline / Reconnecting...');
+      message.reply('🔴 **Minecraft AFK Bot Status:** Offline / Reconnecting...');
     }
   }
 });
