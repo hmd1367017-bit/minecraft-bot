@@ -4,7 +4,7 @@ const mineflayer = require('mineflayer');
 
 // Environment Variables Configuration
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const VOICE_CHANNEL_ID = '1561427705713401946'; // আপনার ভয়েস চ্যানেল আইডি
+const VOICE_CHANNEL_ID = process.env.VOICE_CHANNEL_ID; // আপনার ভয়েস চ্যানেল আইডি
 const MC_HOST = process.env.MC_HOST || 'bdtopsmp.aternos.me';
 const MC_PORT = parseInt(process.env.MC_PORT, 10) || 48115;
 
