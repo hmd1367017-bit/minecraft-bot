@@ -1,7 +1,6 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
 const mineflayer = require('mineflayer');
-const net = require('net');
 
 // Environment Variables Configuration
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
@@ -20,6 +19,7 @@ const client = new Client({
 });
 
 let mcBot = null;
+let isServerOnline = false;
 let lastStatus = null;
 
 // ================= [ AFK BOT LOGIC ] =================
@@ -37,7 +37,10 @@ function createMinecraftBot() {
 
     mcBot.once('spawn', () => {
         console.log('[Minecraft AFK Bot] Bot successfully spawned in world!');
+        isServerOnline = true;
+        updateVoiceChannel();
 
+        // Anti-AFK Jump (Every 3 minutes)
         setTimeout(() => {
             setInterval(() => {
                 if (mcBot && mcBot.entity) {
@@ -46,89 +49,57 @@ function createMinecraftBot() {
                         mcBot.setControlState('jump', false);
                     }, 500);
                 }
-            }, 180000); // প্রতি ৩ মিনিট পর পর এন্টি-এএফকে জাম্প
+            }, 180000);
         }, 10000);
     });
 
+    // কেউ সার্ভারে প্রবেশ করলে সাথে সাথে কাউন্ট আপডেট হবে
+    mcBot.on('playerJoined', (player) => {
+        console.log(`[Minecraft] Player joined: ${player.username}`);
+        updateVoiceChannel();
+    });
+
+    // কেউ সার্ভার থেকে বের হয়ে গেলে সাথে সাথে কাউন্ট আপডেট হবে
+    mcBot.on('playerLeft', (player) => {
+        console.log(`[Minecraft] Player left: ${player.username}`);
+        updateVoiceChannel();
+    });
+
+    // সার্ভার বন্ধ বা ডিসকানেক্ট হলে
     mcBot.on('end', (reason) => {
         console.log(`[Minecraft AFK Bot] Bot disconnected. Reason: ${reason}. Reconnecting in 5 seconds...`);
+        isServerOnline = false;
+        updateVoiceChannel();
         setTimeout(createMinecraftBot, 5000);
     });
 
+    // যেকোনো এরর ঘটলে
     mcBot.on('error', (err) => {
         console.error('[Minecraft AFK Bot] Error encountered:', err.message);
+        isServerOnline = false;
+        updateVoiceChannel();
     });
 }
 
-// ================= [ LIVE PLAYER COUNTER LOGIC ] =================
-function checkMinecraftServer() {
-  const socket = new net.Socket();
-  let buffer = Buffer.alloc(0);
-  let isConnected = false;
-
-  socket.setTimeout(4000); // ৪ সেকেন্ড টাইমআউট
-
-  socket.connect(MC_PORT, MC_HOST, () => {
-    isConnected = true;
-    
-    // Minecraft Server List Ping Handshake Packet
-    const hostBuffer = Buffer.from(MC_HOST, 'utf8');
-    const packetData = Buffer.concat([
-      Buffer.from([0x00]), 
-      writeVarInt(47),     
-      writeVarInt(hostBuffer.length),
-      hostBuffer,
-      Buffer.from(toBytes(MC_PORT, 2)), 
-      Buffer.from([0x01])  
-    ]);
-
-    const handshake = Buffer.concat([writeVarInt(packetData.length), packetData]);
-    const request = Buffer.from([0x01, 0x00]); 
-
-    socket.write(Buffer.concat([handshake, request]));
-  });
-
-  socket.on('data', (data) => {
-    buffer = Buffer.concat([buffer, data]);
-    try {
-      const packetLength = readVarInt(buffer);
-      if (buffer.length < packetLength.length + packetLength.value) return;
-
-      const jsonString = buffer.toString('utf8', packetLength.length + 1);
-      const jsonResponse = JSON.parse(jsonString);
-
-      const onlinePlayers = jsonResponse.players && typeof jsonResponse.players.online === 'number' 
-        ? jsonResponse.players.online 
-        : 0;
-
-      updateVoiceChannel(`🔵┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : Online - ${onlinePlayers}`);
-      socket.destroy();
-    } catch (e) {
-      // JSON Parsing Guard
-    }
-  });
-
-  socket.on('error', () => {
-    if (!isConnected) {
-      socket.destroy();
-      updateVoiceChannel(`🔴┊𝐌𝐂-Automated Status : Offline`);
-    }
-  });
-
-  socket.on('timeout', () => {
-    if (!isConnected) {
-      socket.destroy();
-      updateVoiceChannel(`🔴┊𝐌𝐂-PL\nAYER : Offline`);
-    }
-  });
-}
-
-async function updateVoiceChannel(newName) {
+// ================= [ VOICE CHANNEL UPDATER ] =================
+async function updateVoiceChannel() {
   try {
-    if (!VOICE_CHANNEL_ID) return;
+    if (!VOICE_CHANNEL_ID) {
+      console.error('[Error] VOICE_CHANNEL_ID is missing in Environment Variables!');
+      return;
+    }
 
     const channel = await client.channels.fetch(VOICE_CHANNEL_ID);
     if (!channel) return;
+
+    let newName = '';
+    if (isServerOnline && mcBot && mcBot.players) {
+      // সার্ভার অন থাকলে ভেতরে থাকা মোট প্লেয়ার সংখ্যা দেখাবে (বট সহ)
+      const onlineCount = Object.keys(mcBot.players).length;
+      newName = `🔵┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : Online - ${onlineCount}`;
+    } else {
+      newName = `🔴┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : Offline`;
+    }
 
     if (lastStatus !== newName) {
       await channel.setName(newName);
@@ -143,62 +114,20 @@ async function updateVoiceChannel(newName) {
 // ================= [ DISCORD EVENTS ] =================
 client.once('ready', () => {
   console.log(`[Discord] Logged in as ${client.user.tag}`);
-  
-  // AFK বট চালু
   createMinecraftBot();
-
-  // প্লেয়ার কাউন্টার স্ট্যাটাস চেক শুরু (প্রথমবার এবং এরপর প্রতি ১০ সেকেন্ড পর পর)
-  checkMinecraftServer();
-  setInterval(checkMinecraftServer, 10000);
 });
 
 client.on('messageCreate', (message) => {
   if (message.author.bot) return;
 
   if (message.content === '!status') {
-    if (mcBot && mcBot.player) {
+    if (isServerOnline) {
       message.reply('🟢 **Minecraft AFK Bot Status:** Online');
     } else {
       message.reply('🔴 **Minecraft AFK Bot Status:** Offline / Reconnecting...');
     }
   }
 });
-
-// Helper Functions for Minecraft Protocol Handling
-function writeVarInt(value) {
-  const bytes = [];
-  while (true) {
-    if ((value & ~0x7F) === 0) {
-      bytes.push(value);
-      break;
-    }
-    bytes.push((value & 0x7F) | 0x80);
-    value >>>= 7;
-  }
-  return Buffer.from(bytes);
-}
-
-function readVarInt(buffer) {
-  let numRead = 0;
-  let result = 0;
-  let read;
-  do {
-    read = buffer[numRead];
-    result |= (read & 0x7F) << (7 * numRead);
-    numRead++;
-    if (numRead > 5) throw new Error('VarInt is too big');
-  } while ((read & 0x80) === 0x80);
-  return { value: result, length: numRead };
-}
-
-function toBytes(number, bytes) {
-  const buf = new Array(bytes);
-  for (let i = bytes - 1; i >= 0; i--) {
-    buf[i] = number & 0xff;
-    number = number >> 8;
-  }
-  return buf;
-}
 
 // Start Discord Bot
 if (!DISCORD_TOKEN) {
