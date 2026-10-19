@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
 const mineflayer = require('mineflayer');
+const net = require('net');
 
 // Environment Variables Configuration
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
@@ -53,47 +54,67 @@ function createMinecraftBot() {
         }, 10000);
     });
 
-    // কেউ সার্ভারে প্রবেশ করলে
     mcBot.on('playerJoined', (player) => {
         console.log(`[Minecraft] Player joined: ${player.username}`);
-        if (isServerOnline) {
-            setTimeout(updateVoiceChannel, 1000);
-        }
+        if (isServerOnline) setTimeout(updateVoiceChannel, 1000);
     });
 
-    // কেউ সার্ভার থেকে বের হয়ে গেলে
     mcBot.on('playerLeft', (player) => {
         console.log(`[Minecraft] Player left: ${player.username}`);
-        if (isServerOnline) {
-            setTimeout(updateVoiceChannel, 1000);
-        }
+        if (isServerOnline) setTimeout(updateVoiceChannel, 1000);
     });
 
-    // সার্ভার বন্ধ বা ডিসকানেক্ট হলে তাৎক্ষণিক অফলাইন সেট করা
     mcBot.on('end', (reason) => {
         console.log(`[Minecraft AFK Bot] Bot disconnected. Reason: ${reason}.`);
         isServerOnline = false;
-        
-        if (mcBot) {
-            mcBot.players = {};
-        }
-
+        if (mcBot) mcBot.players = {};
         updateVoiceChannel();
-
-        // ৫ সেকেন্ড পর রি-কানেক্টের চেষ্টা করবে
         setTimeout(createMinecraftBot, 5000);
     });
 
-    // যেকোনো এরর ঘটলে
     mcBot.on('error', (err) => {
         console.error('[Minecraft AFK Bot] Error encountered:', err.message);
         isServerOnline = false;
-        if (mcBot) {
-            mcBot.players = {};
-        }
+        if (mcBot) mcBot.players = {};
         updateVoiceChannel();
     });
 }
+
+// ================= [ SERVER PORT CHECKER ] =================
+// ব্যাকগ্রাউন্ডে সরাসরি নেটওয়ার্ক পোর্ট চেক করে নিশ্চিত করবে সার্ভার অন নাকি অফ
+function checkServerStatusDirectly() {
+    const socket = new net.Socket();
+    socket.setTimeout(3000); // ৩ সেকেন্ডের বেশি সাড়া না পেলে অফলাইন ধরা হবে
+
+    socket.connect(MC_PORT, MC_HOST, () => {
+        socket.destroy();
+        if (!isServerOnline) {
+            isServerOnline = true;
+            updateVoiceChannel();
+        }
+    });
+
+    socket.on('error', () => {
+        socket.destroy();
+        if (isServerOnline) {
+            isServerOnline = false;
+            if (mcBot) mcBot.players = {};
+            updateVoiceChannel();
+        }
+    });
+
+    socket.on('timeout', () => {
+        socket.destroy();
+        if (isServerOnline) {
+            isServerOnline = false;
+            if (mcBot) mcBot.players = {};
+            updateVoiceChannel();
+        }
+    });
+}
+
+// প্রতি ১০ সেকেন্ড পর পর পোর্ট নক করে স্ট্যাটাস চেক করবে
+setInterval(checkServerStatusDirectly, 10000);
 
 // ================= [ VOICE CHANNEL UPDATER ] =================
 async function updateVoiceChannel() {
@@ -105,15 +126,17 @@ async function updateVoiceChannel() {
 
     let newName = '';
     
-    // সার্ভার অনলাইন এবং বট যদি সত্যিকার অর্থেই ওয়ার্ল্ডে স্পন হয়ে থাকে
-    if (isServerOnline && mcBot && mcBot.entity) {
-      const playerKeys = mcBot.players ? Object.keys(mcBot.players) : [];
-      const onlineCount = playerKeys.length > 0 ? playerKeys.length : 1;
+    // যদি পোর্ট চেকার এবং বট দুটোই অন নিশ্চিত করে
+    if (isServerOnline && mcBot && mcBot.entity && mcBot.players) {
+      // বট বাদে অন্য আসল প্লেয়ারদের তালিকা তৈরি
+      const realPlayers = Object.keys(mcBot.players).filter(
+        (username) => username.toLowerCase() !== MC_USERNAME.toLowerCase()
+      );
       
-      // আপনার মূল ফন্ট ও স্টাইল অনুযায়ী 𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 ব্যবহার করা হয়েছে
-      newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online - ${onlineCount}`;
+      const realPlayerCount = realPlayers.length;
+      newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online - ${realPlayerCount}`;
     } else {
-      // সার্ভার অফলাইন থাকলে
+      // সার্ভার বন্ধ থাকলে বা পোর্ট রেসপন্স না করলে
       newName = `🔴┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Offline`;
     }
 
@@ -127,18 +150,11 @@ async function updateVoiceChannel() {
   }
 }
 
-// ৩০ সেকেন্ড পর পর ব্যাকগ্রাউন্ডে স্টেট চেক করবে
-setInterval(() => {
-    if (isServerOnline && mcBot && !mcBot.entity) {
-        isServerOnline = false;
-        updateVoiceChannel();
-    }
-}, 30000);
-
 // ================= [ DISCORD EVENTS ] =================
 client.once('ready', () => {
   console.log(`[Discord] Logged in as ${client.user.tag}`);
   createMinecraftBot();
+  checkServerStatusDirectly();
 });
 
 client.on('messageCreate', (message) => {
