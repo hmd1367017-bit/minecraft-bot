@@ -35,7 +35,7 @@ function createMinecraftBot() {
     }
 
     isBotSpawned = false;
-    updateVoiceChannel(); // সার্ভার অফ থাকলে অফলাইন দেখাবে
+    updateVoiceChannel(); // সার্ভার অফ বা ডিসকানেক্টেড থাকলে সাথে সাথে অফলাইন দেখাবে
 
     try {
         mcBot = mineflayer.createBot({
@@ -48,7 +48,8 @@ function createMinecraftBot() {
         });
     } catch (err) {
         console.error('[Minecraft AFK Bot] Creation Error:', err.message);
-        setTimeout(createMinecraftBot, 10000);
+        isBotSpawned = false;
+        updateVoiceChannel();
         return;
     }
 
@@ -82,18 +83,19 @@ function createMinecraftBot() {
 
     // কেউ সার্ভারে আসলে বা গেলে
     mcBot.on('playerJoined', () => {
-        updateVoiceChannel();
+        if (isBotSpawned) updateVoiceChannel();
     });
 
     mcBot.on('playerLeft', () => {
-        updateVoiceChannel();
+        if (isBotSpawned) updateVoiceChannel();
     });
 
     // সার্ভার বন্ধ হলে বা কিক খেলে
     mcBot.on('end', (reason) => {
         console.log(`[Minecraft AFK Bot] Disconnected. Reason: ${reason}. Retrying in 10 seconds...`);
         isBotSpawned = false;
-        updateVoiceChannel(); 
+        mcBot = null; // পুরানো বোট ইনস্ট্যান্স পুরোপুরি ক্লিয়ার করে দেওয়া হলো
+        updateVoiceChannel(); // তাৎক্ষণিক অফলাইন আপডেট করবে
         
         setTimeout(createMinecraftBot, 10000);
     });
@@ -117,13 +119,11 @@ async function updateVoiceChannel() {
     
     // যদি বট স্পন হয়ে থাকে এবং বটের এন্ট্রিতি ওয়ার্ল্ডে থাকে
     if (isBotSpawned && mcBot && mcBot.entity) {
-      // পুরনো ক্যাশ বা ডাটা ক্লিয়ার করে ফ্রেশ প্লেয়ার অবজেক্ট ফেচ করা
       let realCount = 0;
       try {
         const playersObj = mcBot.players || {};
         const playerUsernames = Object.keys(playersObj);
         
-        // বট নিজের নাম বা ইউজারনেম বাদ দিয়ে বাকি আসল প্লেয়ারদের নিখুঁতভাবে ফিল্টার করা
         const realPlayers = playerUsernames.filter(
           (username) => username && username.toLowerCase() !== MC_USERNAME.toLowerCase()
         );
@@ -138,7 +138,7 @@ async function updateVoiceChannel() {
         newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online - ${realCount}`;
       }
     } else {
-      // সার্ভার অফলাইন বা বট ডিসকানেক্টেড থাকলে
+      // সার্ভার অফলাইন বা বট ডিসকানেক্টেড থাকলে অবিলম্বে অফলাইন দেখাবে
       newName = `🔴┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Offline`;
     }
 
