@@ -24,8 +24,11 @@ let lastStatus = null;
 let reconnectTimeout = null;
 let afkInterval = null;
 let updateTimer = null;
+let setNameCooldown = 0;           // ✅ rate limit cooldown
+let pendingName = null;             // ✅ পরে setName করার জন্য
 
-const RECONNECT_DELAY = 10000; // ✅ ১০ সেকেন্ড
+const RECONNECT_DELAY = 10000;      // ১০ সেকেন্ড
+const SETNAME_COOLDOWN = 50000;    // ✅ setName ব্যর্থ হলে ২ মিনিট অপেক্ষা
 
 // ================= [ MINECRAFT BOT ] =================
 function createMinecraftBot() {
@@ -48,7 +51,6 @@ function createMinecraftBot() {
         checkTimeoutInterval: 30000
     });
 
-    // ✅ spawn প্যাকেট পাওয়ার পর সত্যিকারের সংযোগ যাচাই
     mcBot.once('spawn', () => {
         console.log('[Minecraft] Spawn packet received — verifying...');
 
@@ -74,7 +76,6 @@ function createMinecraftBot() {
                 isBotSpawned = true;
                 scheduleUpdate();
 
-                // Anti-AFK jump (প্রতি ৩ মিনিটে)
                 setTimeout(() => {
                     if (!isBotSpawned || !mcBot) return;
                     afkInterval = setInterval(() => {
@@ -100,7 +101,6 @@ function createMinecraftBot() {
     mcBot.on('playerJoined', () => { if (isBotSpawned) scheduleUpdate(); });
     mcBot.on('playerLeft', () => { if (isBotSpawned) scheduleUpdate(); });
 
-    // ✅ ডিসকানেক্ট → Offline
     mcBot.on('end', (reason) => {
         console.log(`[Minecraft] Disconnected: ${reason}. Reconnecting in ${RECONNECT_DELAY / 1000}s...`);
         isBotSpawned = false;
@@ -130,6 +130,17 @@ async function updateVoiceChannel() {
     try {
         if (!VOICE_CHANNEL_ID) return;
 
+        // ✅ cooldown চললে অপেক্ষা করি
+        const now = Date.now();
+        if (now < setNameCooldown) {
+            const waitSec = Math.ceil((setNameCooldown - now) / 1000);
+            console.log(`[Voice Channel] ⏳ Cooldown — waiting ${waitSec}s before retry`);
+            // cooldown শেষ হলে আবার চেষ্টা
+            clearTimeout(updateTimer);
+            updateTimer = setTimeout(updateVoiceChannel, setNameCooldown - now + 1000);
+            return;
+        }
+
         const channel = await client.channels.fetch(VOICE_CHANNEL_ID).catch(() => null);
         if (!channel) return;
 
@@ -156,14 +167,24 @@ async function updateVoiceChannel() {
         // ✅ একই নাম হলে setName করবে না
         if (lastStatus === newName) return;
 
+        // ✅ pendingName আগের মতো হলে (বারবার চেষ্টা করছে) স্কিপ
+        if (pendingName === newName) return;
+        pendingName = newName;
+
         console.log(`[Voice Channel] Setting: "${newName}"`);
         try {
             await channel.setName(newName);
-            lastStatus = newName; // ✅ শুধু সফল হলে আপডেট
+            lastStatus = newName;      // ✅ শুধু সফল হলে
+            pendingName = null;
+            setNameCooldown = 0;
             console.log(`[Voice Channel] ✅ Done: "${newName}"`);
         } catch (e) {
-            // ❌ ব্যর্থ হলে lastStatus আপডেট হবে না → পরের বার আবার চেষ্টা করবে
+            // ❌ ব্যর্থ হলে ২ মিনিট cooldown
             console.error(`[Voice Channel] ❌ Failed:`, e.message);
+            setNameCooldown = Date.now() + SETNAME_COOLDOWN;
+            console.log(`[Voice Channel] Cooldown set — will retry in ${SETNAME_COOLDOWN / 1000}s`);
+            clearTimeout(updateTimer);
+            updateTimer = setTimeout(updateVoiceChannel, SETNAME_COOLDOWN + 1000);
         }
     } catch (error) {
         console.error('[Discord Error]:', error.message);
