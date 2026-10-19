@@ -1,86 +1,148 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
-const mineflayer = require('mineflayer');
+const net = require('net');
 
 // Environment Variables Configuration
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
+const VOICE_CHANNEL_ID = process.env.VOICE_CHANNEL_ID; // এনভায়রনমেন্ট ভেরিয়েবল থেকে আইডি নেবে
 const MC_HOST = process.env.MC_HOST || 'bdtopsmp.aternos.me';
 const MC_PORT = parseInt(process.env.MC_PORT, 10) || 48115;
-const MC_USERNAME = process.env.MC_USERNAME || 'MANAGER_1734';
 
-// Discord Client Setup
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+  intents: [GatewayIntentBits.Guilds]
 });
 
-let mcBot = null;
+let lastStatus = null;
 
-function createMinecraftBot() {
-    console.log(`[Minecraft] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
+client.once('ready', () => {
+  console.log(`[Player Counter Bot] Logged in successfully as ${client.user.tag}`);
+  
+  // চালু হওয়ার সাথে সাথে চেক করবে, এরপর প্রতি ১০ সেকেন্ড পর পর
+  checkMinecraftServer();
+  setInterval(checkMinecraftServer, 10000);
+});
 
-    mcBot = mineflayer.createBot({
-        host: MC_HOST,
-        port: MC_PORT,
-        username: MC_USERNAME,
-        version: '1.20.3', // আপনার ভার্সনের সঠিক প্রটোকল ট্যাগ
-        auth: 'offline',   // ক্র্যাকড বা Aternos সার্ভারের জন্য আবশ্যক
-        checkTimeoutInterval: 60000 // টাইমআউট সময় বাড়িয়ে দেওয়া হলো যাতে সার্ভার সহজে কিক না করে
-    });
+function checkMinecraftServer() {
+  const socket = new net.Socket();
+  let buffer = Buffer.alloc(0);
+  let isConnected = false;
 
-    // বট সার্ভারে পুরোপুরি প্রবেশ করার পর কোনো নড়াচড়া বা মুভমেন্ট প্যাকেট যেন ত্রুটি না ঘটায়
-    mcBot.once('spawn', () => {
-        console.log('[Minecraft] Bot successfully spawned in world!');
+  socket.setTimeout(4000); // ৪ সেকেন্ড টাইমআউট
 
-        // বট স্পন হওয়ার অন্তত ১০ সেকেন্ড পর প্রথম মুভমেন্ট বা জাম্প শুরু করবে
-        setTimeout(() => {
-            setInterval(() => {
-                if (mcBot && mcBot.entity) {
-                    mcBot.setControlState('jump', true);
-                    setTimeout(() => {
-                        mcBot.setControlState('jump', false);
-                    }, 500);
-                }
-            }, 180000); // প্রতি ৩ মিনিট পর পর এন্টি-এএফকে জাম্প
-        }, 10000);
-    });
+  socket.connect(MC_PORT, MC_HOST, () => {
+    isConnected = true;
+    
+    // Minecraft Server List Ping Handshake Packet
+    const hostBuffer = Buffer.from(MC_HOST, 'utf8');
+    const packetData = Buffer.concat([
+      Buffer.from([0x00]), // Packet ID: Handshake
+      writeVarInt(47),     // Protocol Version
+      writeVarInt(hostBuffer.length),
+      hostBuffer,
+      Buffer.from(toBytes(MC_PORT, 2)), // Port
+      Buffer.from([0x01])  // Next State: 1 (Status)
+    ]);
 
-    // কিক বা ডিসকানেক্ট হলে যাতে সার্ভার ওভারলোডেড না হয়ে ৫ সেকেন্ড পর স্মুথলি রি-কানেক্ট করে
-    mcBot.on('end', (reason) => {
-        console.log(`[Minecraft] Bot disconnected. Reason: ${reason}. Reconnecting in 5 seconds...`);
-        setTimeout(createMinecraftBot, 5000);
-    });
+    const handshake = Buffer.concat([writeVarInt(packetData.length), packetData]);
+    const request = Buffer.from([0x01, 0x00]); // Request Packet
 
-    mcBot.on('error', (err) => {
-        console.error('[Minecraft] Error encountered:', err.message);
-    });
+    socket.write(Buffer.concat([handshake, request]));
+  });
+
+  socket.on('data', (data) => {
+    buffer = Buffer.concat([buffer, data]);
+    try {
+      const packetLength = readVarInt(buffer);
+      if (buffer.length < packetLength.length + packetLength.value) return;
+
+      const jsonString = buffer.toString('utf8', packetLength.length + 1);
+      const jsonResponse = JSON.parse(jsonString);
+
+      const onlinePlayers = jsonResponse.players && typeof jsonResponse.players.online === 'number' 
+        ? jsonResponse.players.online 
+        : 0;
+
+      // আপনার কাঙ্ক্ষিত ফরম্যাট: Online - সংখ্যা
+      updateVoiceChannel(`🔵┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : Online - ${onlinePlayers}`);
+      socket.destroy();
+    } catch (e) {
+      // পার্সিং এরর ইগ্নোর করার জন্য
+    }
+  });
+
+  socket.on('error', (err) => {
+    if (!isConnected) {
+      socket.destroy();
+      updateVoiceChannel(`🔴┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : Offline`);
+    }
+  });
+
+  socket.on('timeout', () => {
+    if (!isConnected) {
+      socket.destroy();
+      updateVoiceChannel(`🔴┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : Offline`);
+    }
+  });
 }
 
-
-// Discord Client Event Handlers
-client.once('ready', () => {
-  console.log(`[Discord] Logged in as ${client.user.tag}`);
-  createMinecraftBot();
-});
-
-client.on('messageCreate', (message) => {
-  if (message.author.bot) return;
-
-  if (message.content === '!status') {
-    if (mcBot && mcBot.player) {
-      message.reply('🟢 **Minecraft AFK Bot Status:** Online');
-    } else {
-      message.reply('🔴 **Minecraft AFK Bot Status:** Offline / Reconnecting...');
+async function updateVoiceChannel(newName) {
+  try {
+    if (!VOICE_CHANNEL_ID) {
+      console.error('[Error] VOICE_CHANNEL_ID is missing in Environment Variables!');
+      return;
     }
-  }
-});
 
-// Start Discord Bot
+    const channel = await client.channels.fetch(VOICE_CHANNEL_ID);
+    if (!channel) return;
+
+    if (lastStatus !== newName) {
+      await channel.setName(newName);
+      lastStatus = newName;
+      console.log(`[Success] Voice channel updated to: "${newName}"`);
+    }
+  } catch (error) {
+    console.error('[Discord Error] Failed to update voice channel:', error.message);
+  }
+}
+
+// Helper Functions for Minecraft Protocol Handling
+function writeVarInt(value) {
+  const bytes = [];
+  while (true) {
+    if ((value & ~0x7F) === 0) {
+      bytes.push(value);
+      break;
+    }
+    bytes.push((value & 0x7F) | 0x80);
+    value >>>= 7;
+  }
+  return Buffer.from(bytes);
+}
+
+function readVarInt(buffer) {
+  let numRead = 0;
+  let result = 0;
+  let read;
+  do {
+    read = buffer[numRead];
+    result |= (read & 0x7F) << (7 * numRead);
+    numRead++;
+    if (numRead > 5) throw new Error('VarInt is too big');
+  } while ((read & 0x80) === 0x80);
+  return { value: result, length: numRead };
+}
+
+function toBytes(number, bytes) {
+  const buf = new Array(bytes);
+  for (let i = bytes - 1; i >= 0; i--) {
+    buf[i] = number & 0xff;
+    number = number >> 8;
+  }
+  return buf;
+}
+
 if (!DISCORD_TOKEN) {
-  console.error('[Error] DISCORD_TOKEN is missing in Environment Variables!');
+  console.error('[Fatal Error] DISCORD_TOKEN is missing!');
   process.exit(1);
 }
 
