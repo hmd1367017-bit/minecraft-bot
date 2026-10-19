@@ -4,7 +4,7 @@
   "description": "24/7 Minecraft AFK Bot integrated with Discord Control",
   "main": "bot.js",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node bot.js & node minecraft.js"
   },
   "dependencies": {
     "discord.js": "^14.14.0",
