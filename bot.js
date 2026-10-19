@@ -25,6 +25,8 @@ let reconnectTimeout = null;
 let afkInterval = null;
 let updateTimer = null;
 
+const RECONNECT_DELAY = 10000; // ✅ ১০ সেকেন্ড
+
 // ================= [ MINECRAFT BOT ] =================
 function createMinecraftBot() {
     if (mcBot) {
@@ -48,12 +50,11 @@ function createMinecraftBot() {
 
     // ✅ spawn প্যাকেট পাওয়ার পর সত্যিকারের সংযোগ যাচাই
     mcBot.once('spawn', () => {
-        console.log('[Minecraft] Spawn packet received — verifying real connection...');
+        console.log('[Minecraft] Spawn packet received — verifying...');
 
-        // ধাপ ১: ৫ সেকেন্ড অপেক্ষা
         setTimeout(() => {
             if (!mcBot || !mcBot.entity || !mcBot.entity.position) {
-                console.log('[Minecraft] Ghost spawn detected — no valid entity. Ignoring.');
+                console.log('[Minecraft] Ghost spawn — no entity. Ignoring.');
                 return;
             }
 
@@ -63,15 +64,13 @@ function createMinecraftBot() {
                 return;
             }
 
-            // ধাপ ২: আরও ৩ সেকেন্ড অপেক্ষা
             setTimeout(() => {
                 if (!mcBot || !mcBot.entity || !mcBot.entity.position) {
-                    console.log('[Minecraft] Connection lost during verification — Offline.');
+                    console.log('[Minecraft] Lost during verification — Offline.');
                     return;
                 }
 
-                // ✅ সব যাচাই পাস — সত্যিই অনলাইন
-                console.log(`[Minecraft] Real connection confirmed at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) — Online`);
+                console.log(`[Minecraft] Confirmed at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) — Online`);
                 isBotSpawned = true;
                 scheduleUpdate();
 
@@ -98,34 +97,23 @@ function createMinecraftBot() {
         }, 5000);
     });
 
-    mcBot.on('playerJoined', (player) => {
-        if (isBotSpawned) {
-            console.log(`[Minecraft] Player joined: ${player.username}`);
-            scheduleUpdate();
-        }
-    });
-
-    mcBot.on('playerLeft', (player) => {
-        if (isBotSpawned) {
-            console.log(`[Minecraft] Player left: ${player.username}`);
-            scheduleUpdate();
-        }
-    });
+    mcBot.on('playerJoined', () => { if (isBotSpawned) scheduleUpdate(); });
+    mcBot.on('playerLeft', () => { if (isBotSpawned) scheduleUpdate(); });
 
     // ✅ ডিসকানেক্ট → Offline
     mcBot.on('end', (reason) => {
-        console.log(`[Minecraft] Bot disconnected. Reason: ${reason}. Reconnecting in 5 seconds...`);
+        console.log(`[Minecraft] Disconnected: ${reason}. Reconnecting in ${RECONNECT_DELAY / 1000}s...`);
         isBotSpawned = false;
         mcBot = null;
         if (afkInterval) { clearInterval(afkInterval); afkInterval = null; }
         scheduleUpdate();
 
         clearTimeout(reconnectTimeout);
-        reconnectTimeout = setTimeout(createMinecraftBot, 5000);
+        reconnectTimeout = setTimeout(createMinecraftBot, RECONNECT_DELAY);
     });
 
     mcBot.on('error', (err) => {
-        console.error('[Minecraft] Error encountered:', err.message);
+        console.error('[Minecraft] Error:', err.message);
         isBotSpawned = false;
         scheduleUpdate();
         try { if (mcBot) mcBot.quit(); } catch (e) {}
@@ -135,7 +123,7 @@ function createMinecraftBot() {
 // ================= [ STATUS UPDATER ] =================
 function scheduleUpdate() {
     clearTimeout(updateTimer);
-    updateTimer = setTimeout(updateVoiceChannel, 2000); // ২ সেকেন্ড debounce
+    updateTimer = setTimeout(updateVoiceChannel, 2000);
 }
 
 async function updateVoiceChannel() {
@@ -148,7 +136,6 @@ async function updateVoiceChannel() {
         let newName;
 
         if (isBotSpawned && mcBot) {
-            // প্লেয়ার সংখ্যা গণনা (নিজেকে বাদ দিয়ে)
             let realCount = 0;
             try {
                 const playersMap = mcBot.players || {};
@@ -157,9 +144,7 @@ async function updateVoiceChannel() {
                     return p.username.toLowerCase() !== MC_USERNAME.toLowerCase();
                 });
                 realCount = realPlayers.length;
-            } catch (e) {
-                realCount = 0;
-            }
+            } catch (e) { realCount = 0; }
 
             newName = realCount === 0
                 ? `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online`
@@ -168,26 +153,25 @@ async function updateVoiceChannel() {
             newName = `🔴┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Offline`;
         }
 
-        // নাম একই হলে setName করবে না
+        // ✅ একই নাম হলে setName করবে না
         if (lastStatus === newName) return;
 
-        console.log(`[Voice Channel] Attempting to set: "${newName}"`);
+        console.log(`[Voice Channel] Setting: "${newName}"`);
         try {
             await channel.setName(newName);
-            lastStatus = newName;
-            console.log(`[Voice Channel] ✅ Success: "${newName}"`);
+            lastStatus = newName; // ✅ শুধু সফল হলে আপডেট
+            console.log(`[Voice Channel] ✅ Done: "${newName}"`);
         } catch (e) {
-            console.error(`[Voice Channel] ❌ setName failed:`, e.message);
-            // ব্যর্থ হলেও lastStatus আপডেট, যাতে বারবার লুপ না হয়
-            lastStatus = newName;
+            // ❌ ব্যর্থ হলে lastStatus আপডেট হবে না → পরের বার আবার চেষ্টা করবে
+            console.error(`[Voice Channel] ❌ Failed:`, e.message);
         }
     } catch (error) {
-        console.error('[Discord Error] Failed to update voice channel:', error.message);
+        console.error('[Discord Error]:', error.message);
     }
 }
 
-// প্রতি ৫ সেকেন্ডে স্ট্যাটাস চেক (প্লেয়ার সংখ্যা পরিবর্তন ধরতে)
-setInterval(() => scheduleUpdate(), 5000);
+// প্রতি ১০ সেকেন্ডে চেক
+setInterval(() => scheduleUpdate(), 10000);
 
 // ================= [ DISCORD EVENTS ] =================
 client.once('clientReady', () => {
@@ -208,21 +192,20 @@ client.on('messageCreate', (message) => {
           return p.username.toLowerCase() !== MC_USERNAME.toLowerCase();
         }).length;
       } catch (e) { realCount = 0; }
-
-      message.reply(`🟢 **Minecraft Server Status:** Online\n👥 **Players Online:** ${realCount}`);
+      message.reply(`🟢 **Minecraft Server:** Online\n👥 **Players:** ${realCount}`);
     } else {
-      message.reply('🔴 **Minecraft Server Status:** Offline / Reconnecting...');
+      message.reply('🔴 **Minecraft Server:** Offline / Reconnecting...');
     }
   }
 });
 
 // ================= [ START ] =================
 if (!DISCORD_TOKEN) {
-  console.error('[Error] DISCORD_TOKEN is missing in Environment Variables!');
+  console.error('[Error] DISCORD_TOKEN is missing!');
   process.exit(1);
 }
 if (!VOICE_CHANNEL_ID) {
-  console.error('[Warning] VOICE_CHANNEL_ID is missing — status updates will be skipped.');
+  console.error('[Warning] VOICE_CHANNEL_ID is missing.');
 }
 
 client.login(DISCORD_TOKEN);
