@@ -1,27 +1,66 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
+const mineflayer = require('mineflayer');
 const net = require('net');
 
 // Environment Variables Configuration
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const VOICE_CHANNEL_ID = process.env.VOICE_CHANNEL_ID; // এনভায়রনমেন্ট ভেরিয়েবল থেকে আইডি নেবে
+const VOICE_CHANNEL_ID = process.env.VOICE_CHANNEL_ID;
 const MC_HOST = process.env.MC_HOST || 'bdtopsmp.aternos.me';
 const MC_PORT = parseInt(process.env.MC_PORT, 10) || 48115;
+const MC_USERNAME = process.env.MC_USERNAME || 'MANAGER_1734';
 
+// Discord Client Setup
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
 });
 
+let mcBot = null;
 let lastStatus = null;
 
-client.once('ready', () => {
-  console.log(`[Player Counter Bot] Logged in successfully as ${client.user.tag}`);
-  
-  // চালু হওয়ার সাথে সাথে চেক করবে, এরপর প্রতি ১০ সেকেন্ড পর পর
-  checkMinecraftServer();
-  setInterval(checkMinecraftServer, 10000);
-});
+// ================= [ AFK BOT LOGIC ] =================
+function createMinecraftBot() {
+    console.log(`[Minecraft AFK Bot] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
 
+    mcBot = mineflayer.createBot({
+        host: MC_HOST,
+        port: MC_PORT,
+        username: MC_USERNAME,
+        version: '1.20.3', 
+        auth: 'offline',   
+        checkTimeoutInterval: 60000 
+    });
+
+    mcBot.once('spawn', () => {
+        console.log('[Minecraft AFK Bot] Bot successfully spawned in world!');
+
+        setTimeout(() => {
+            setInterval(() => {
+                if (mcBot && mcBot.entity) {
+                    mcBot.setControlState('jump', true);
+                    setTimeout(() => {
+                        mcBot.setControlState('jump', false);
+                    }, 500);
+                }
+            }, 180000); // প্রতি ৩ মিনিট পর পর এন্টি-এএফকে জাম্প
+        }, 10000);
+    });
+
+    mcBot.on('end', (reason) => {
+        console.log(`[Minecraft AFK Bot] Bot disconnected. Reason: ${reason}. Reconnecting in 5 seconds...`);
+        setTimeout(createMinecraftBot, 5000);
+    });
+
+    mcBot.on('error', (err) => {
+        console.error('[Minecraft AFK Bot] Error encountered:', err.message);
+    });
+}
+
+// ================= [ LIVE PLAYER COUNTER LOGIC ] =================
 function checkMinecraftServer() {
   const socket = new net.Socket();
   let buffer = Buffer.alloc(0);
@@ -35,16 +74,16 @@ function checkMinecraftServer() {
     // Minecraft Server List Ping Handshake Packet
     const hostBuffer = Buffer.from(MC_HOST, 'utf8');
     const packetData = Buffer.concat([
-      Buffer.from([0x00]), // Packet ID: Handshake
-      writeVarInt(47),     // Protocol Version
+      Buffer.from([0x00]), 
+      writeVarInt(47),     
       writeVarInt(hostBuffer.length),
       hostBuffer,
-      Buffer.from(toBytes(MC_PORT, 2)), // Port
-      Buffer.from([0x01])  // Next State: 1 (Status)
+      Buffer.from(toBytes(MC_PORT, 2)), 
+      Buffer.from([0x01])  
     ]);
 
     const handshake = Buffer.concat([writeVarInt(packetData.length), packetData]);
-    const request = Buffer.from([0x01, 0x00]); // Request Packet
+    const request = Buffer.from([0x01, 0x00]); 
 
     socket.write(Buffer.concat([handshake, request]));
   });
@@ -62,35 +101,31 @@ function checkMinecraftServer() {
         ? jsonResponse.players.online 
         : 0;
 
-      // আপনার কাঙ্ক্ষিত ফরম্যাট: Online - সংখ্যা
       updateVoiceChannel(`🔵┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : Online - ${onlinePlayers}`);
       socket.destroy();
     } catch (e) {
-      // পার্সিং এরর ইগ্নোর করার জন্য
+      // JSON Parsing Guard
     }
   });
 
-  socket.on('error', (err) => {
+  socket.on('error', () => {
     if (!isConnected) {
       socket.destroy();
-      updateVoiceChannel(`🔴┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : Offline`);
+      updateVoiceChannel(`🔴┊𝐌𝐂-Automated Status : Offline`);
     }
   });
 
   socket.on('timeout', () => {
     if (!isConnected) {
       socket.destroy();
-      updateVoiceChannel(`🔴┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : Offline`);
+      updateVoiceChannel(`🔴┊𝐌𝐂-PL\nAYER : Offline`);
     }
   });
 }
 
 async function updateVoiceChannel(newName) {
   try {
-    if (!VOICE_CHANNEL_ID) {
-      console.error('[Error] VOICE_CHANNEL_ID is missing in Environment Variables!');
-      return;
-    }
+    if (!VOICE_CHANNEL_ID) return;
 
     const channel = await client.channels.fetch(VOICE_CHANNEL_ID);
     if (!channel) return;
@@ -98,12 +133,36 @@ async function updateVoiceChannel(newName) {
     if (lastStatus !== newName) {
       await channel.setName(newName);
       lastStatus = newName;
-      console.log(`[Success] Voice channel updated to: "${newName}"`);
+      console.log(`[Status Counter] Voice channel updated to: "${newName}"`);
     }
   } catch (error) {
     console.error('[Discord Error] Failed to update voice channel:', error.message);
   }
 }
+
+// ================= [ DISCORD EVENTS ] =================
+client.once('ready', () => {
+  console.log(`[Discord] Logged in as ${client.user.tag}`);
+  
+  // AFK বট চালু
+  createMinecraftBot();
+
+  // প্লেয়ার কাউন্টার স্ট্যাটাস চেক শুরু (প্রথমবার এবং এরপর প্রতি ১০ সেকেন্ড পর পর)
+  checkMinecraftServer();
+  setInterval(checkMinecraftServer, 10000);
+});
+
+client.on('messageCreate', (message) => {
+  if (message.author.bot) return;
+
+  if (message.content === '!status') {
+    if (mcBot && mcBot.player) {
+      message.reply('🟢 **Minecraft AFK Bot Status:** Online');
+    } else {
+      message.reply('🔴 **Minecraft AFK Bot Status:** Offline / Reconnecting...');
+    }
+  }
+});
 
 // Helper Functions for Minecraft Protocol Handling
 function writeVarInt(value) {
@@ -141,8 +200,9 @@ function toBytes(number, bytes) {
   return buf;
 }
 
+// Start Discord Bot
 if (!DISCORD_TOKEN) {
-  console.error('[Fatal Error] DISCORD_TOKEN is missing!');
+  console.error('[Error] DISCORD_TOKEN is missing in Environment Variables!');
   process.exit(1);
 }
 
