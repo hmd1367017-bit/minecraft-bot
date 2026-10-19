@@ -11,11 +11,11 @@ const MC_USERNAME = process.env.MC_USERNAME || 'MANAGER_1734';
 
 // Discord Client Setup
 const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
-    ]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
 });
 
 let mcBot = null;
@@ -35,22 +35,31 @@ function createMinecraftBot() {
     }
 
     isBotSpawned = false;
-    updateVoiceChannel(); // বট ডিসকানেক্টেড থাকলে সাথে সাথে অফলাইন দেখাবে
+    updateVoiceChannel(); // সার্ভার অফ থাকলে অফলাইন দেখাবে
 
-    mcBot = mineflayer.createBot({
-        host: MC_HOST,
-        port: MC_PORT,
-        username: MC_USERNAME,
-        version: '1.20.3', 
-        auth: 'offline',   
-        checkTimeoutInterval: 30000 
-    });
+    try {
+        mcBot = mineflayer.createBot({
+            host: MC_HOST,
+            port: MC_PORT,
+            username: MC_USERNAME,
+            version: '1.20.3', 
+            auth: 'offline',   
+            checkTimeoutInterval: 30000 
+        });
+    } catch (err) {
+        console.error('[Minecraft AFK Bot] Creation Error:', err.message);
+        setTimeout(createMinecraftBot, 10000);
+        return;
+    }
 
-    // বট সফলভাবে সার্ভারে স্পন হলে
-    mcBot.on('spawn', () => {
+    // বট সফলভাবে সার্ভারে স্পন হলেই সাথে সাথে অনলাইন আপডেট হবে
+    mcBot.once('spawn', () => {
         console.log('[Minecraft AFK Bot] Bot successfully spawned in world!');
         isBotSpawned = true;
-        updateVoiceChannel(); // সাথে সাথে অনলাইন স্ট্যাটাস আপডেট করবে
+        
+        setTimeout(() => {
+            updateVoiceChannel();
+        }, 1000);
 
         // Anti-AFK Jump (প্রতি ৩ মিনিট পর পর)
         setTimeout(() => {
@@ -71,11 +80,20 @@ function createMinecraftBot() {
         }, 10000);
     });
 
+    // কেউ সার্ভারে আসলে বা গেলে
+    mcBot.on('playerJoined', () => {
+        updateVoiceChannel();
+    });
+
+    mcBot.on('playerLeft', () => {
+        updateVoiceChannel();
+    });
+
     // সার্ভার বন্ধ হলে বা কিক খেলে
     mcBot.on('end', (reason) => {
         console.log(`[Minecraft AFK Bot] Disconnected. Reason: ${reason}. Retrying in 10 seconds...`);
         isBotSpawned = false;
-        updateVoiceChannel(); // তাৎক্ষণিক অফলাইন আপডেট করবে
+        updateVoiceChannel(); 
         
         setTimeout(createMinecraftBot, 10000);
     });
@@ -87,7 +105,7 @@ function createMinecraftBot() {
     });
 }
 
-// ================= [ VOICE CHANNEL UPDATER ] =================
+// ================= [ VOICE CHANNEL UPDATER WITH CACHE CLEAR & RETRY ] =================
 async function updateVoiceChannel() {
   try {
     if (!VOICE_CHANNEL_ID) return;
@@ -97,24 +115,23 @@ async function updateVoiceChannel() {
 
     let newName = '';
     
-    // যদি বট স্পন হয়ে থাকে
-    if (isBotSpawned && mcBot) {
+    // যদি বট স্পন হয়ে থাকে এবং বটের এন্ট্রিতি ওয়ার্ল্ডে থাকে
+    if (isBotSpawned && mcBot && mcBot.entity) {
+      // পুরনো ক্যাশ বা ডাটা ক্লিয়ার করে ফ্রেশ প্লেয়ার অবজেক্ট ফেচ করা
       let realCount = 0;
-      
-      // সেফভাবে প্লেয়ার কাউন্ট বের করা
       try {
         const playersObj = mcBot.players || {};
         const playerUsernames = Object.keys(playersObj);
         
+        // বট নিজের নাম বা ইউজারনেম বাদ দিয়ে বাকি আসল প্লেয়ারদের নিখুঁতভাবে ফিল্টার করা
         const realPlayers = playerUsernames.filter(
           (username) => username && username.toLowerCase() !== MC_USERNAME.toLowerCase()
         );
         realCount = realPlayers.length;
-      } catch (e) {
+      } catch (err) {
         realCount = 0;
       }
 
-      // শর্ত অনুযায়ী ফর্মেট
       if (realCount === 0) {
         newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online`;
       } else {
@@ -126,16 +143,21 @@ async function updateVoiceChannel() {
     }
 
     if (lastStatus !== newName) {
-      await channel.setName(newName);
-      lastStatus = newName;
-      console.log(`[Status Counter] Voice channel updated to: "${newName}"`);
+      try {
+        await channel.setName(newName);
+        lastStatus = newName;
+        console.log(`[Status Counter] Voice channel updated to: "${newName}"`);
+      } catch (err) {
+        console.error('[Discord Error] Failed to set channel name, will retry:', err.message);
+        lastStatus = null; // ফেইল করলে স্ট্যাটাস রিসেট হবে যাতে পরবর্তী লুপে আবার রিকুয়েস্ট পাঠাতে পারে
+      }
     }
   } catch (error) {
-    console.error('[Discord Error] Failed to update voice channel:', error.message);
+    console.error('[Discord Error] Channel fetch or update error:', error.message);
   }
 }
 
-// ব্যাকগ্রাউন্ড চেকার লুপ যা সবসময় স্ট্যাটাস ঠিক রাখবে
+// ব্যাকগ্রাউন্ড চেকার লুপ: প্রতি ৫ সেকেন্ড পর পর সব চেক করবে, কখনোই থামবে না
 setInterval(() => {
     updateVoiceChannel();
 }, 5000);
