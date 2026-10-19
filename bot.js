@@ -35,7 +35,7 @@ function createMinecraftBot() {
 
     isBotSpawned = false;
     console.log(`[Minecraft AFK Bot] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
-    updateVoiceChannel(); // সাথে সাথে অফলাইন স্ট্যাটাস আপডেট করবে
+    updateVoiceChannel(); // কানেক্ট করার চেষ্টার সময় বা অফলাইন থাকলে সাথে সাথে অফলাইন আপডেট করবে
 
     try {
         mcBot = mineflayer.createBot({
@@ -44,7 +44,7 @@ function createMinecraftBot() {
             username: MC_USERNAME,
             version: '1.20.3', 
             auth: 'offline',   
-            checkTimeoutInterval: 10000 
+            checkTimeoutInterval: 8000 // ৮ সেকেন্ডের বেশি রেসপন্স না পেলে টাইমআউট ধরবে
         });
     } catch (err) {
         console.error('[Minecraft AFK Bot] Creation Error:', err.message);
@@ -75,21 +75,6 @@ function createMinecraftBot() {
                 } catch (e) {}
             }, 180000);
         }, 10000);
-    });
-
-    // কেউ সার্ভারে আসলে বা গেলে কোনো প্রসেসিং বা ডিলে ছাড়াই ইনস্ট্যান্ট আপডেট কল হবে
-    mcBot.on('playerJoined', (player) => {
-        if (isBotSpawned) {
-            console.log(`[Player Joined] ${player.username} joined. Updating instantly!`);
-            updateVoiceChannel();
-        }
-    });
-
-    mcBot.on('playerLeft', (player) => {
-        if (isBotSpawned) {
-            console.log(`[Player Left] ${player.username} left. Updating instantly!`);
-            updateVoiceChannel();
-        }
     });
 
     // সার্ভার বন্ধ হলে বা ডিসকানেক্ট হলে তাৎক্ষণিক হ্যান্ডেল করবে
@@ -173,12 +158,10 @@ async function updateVoiceChannel() {
   }
 }
 
-// ব্যাকগ্রাউন্ড সেফটি লুপ (প্রতি ২০ সেকেন্ড পর পর জাস্ট স্ট্যাটাস মিলিয়ে দেখার জন্য)
+// সুপারফাস্ট ব্যাকগ্রাউন্ড চেকার লুপ: প্রতি ৩ সেকেন্ড পর পর সার্ভার ও প্লেয়ার স্ট্যাটাস চেক করে আপডেট করবে
 setInterval(() => {
-    if (isBotSpawned) {
-        updateVoiceChannel();
-    }
-}, 20000);
+    updateVoiceChannel();
+}, 3000);
 
 // ================= [ DISCORD EVENTS ] =================
 client.once('ready', () => {
