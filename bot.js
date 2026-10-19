@@ -137,10 +137,12 @@ async function updateVoiceChannel() {
         newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online - ${realCount}`;
       }
     } else {
-      // সার্ভার অফলাইন থাকলে বা বট কানেক্ট না হতে পারলে অবিলম্বে অফলাইন দেখাবে
+      // সার্ভার অফলাইন থাকলে বা বট কানেক্ট না হতে পারলে অফলাইন দেখাবে
       newName = `🔴┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Offline`;
     }
 
+    // অত্যন্ত গুরুত্বপূর্ণ চেক: নাম যদি ইতিমধ্যে বর্তমান নামের সাথে মিলে যায়, 
+    // তবে ডিসকর্ডে কোনো রিকোয়েস্ট পাঠানো হবে না (কোনো স্প্যাম বা বারবার এডিট হবে না)
     if (lastStatus !== newName) {
       try {
         await channel.setName(newName);
@@ -148,7 +150,7 @@ async function updateVoiceChannel() {
         console.log(`[Status Counter] Voice channel updated to: "${newName}"`);
       } catch (err) {
         console.error('[Discord Error] Failed to set channel name, will retry:', err.message);
-        lastStatus = null; 
+        // ফেইল করলে lastStatus রিসেট করা হবে না যাতে অপ্রয়োজনীয় এডিট রিকোয়েস্ট এড়ানো যায়
       }
     }
   } catch (error) {
@@ -156,7 +158,7 @@ async function updateVoiceChannel() {
   }
 }
 
-// ব্যাকগ্রাউন্ড চেকার লুপ: প্রতি ৫ সেকেন্ড পর পর স্ট্যাটাস সিঙ্ক রাখবে
+// ব্যাকগ্রাউন্ড চেকার লুপ: শুধু ব্যাকগ্রাউন্ডে চেক করবে, নাম পরিবর্তন না হলে ডিসকর্ডে হাত দেবে না
 setInterval(() => {
     updateVoiceChannel();
 }, 5000);
