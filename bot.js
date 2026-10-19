@@ -1,3 +1,13 @@
+<ElicitationsGroup>
+
+আপনার চাহিদা একদম স্পষ্ট—আমরা আপনার এই বর্তমান সিস্টেমটিই রাখব, শুধু লজিকটি এমনভাবে নিখুঁত করে দেব যাতে:
+১. সার্ভার অফ থাকলে বা বট জয়েন করতে ব্যর্থ হয়ে রিট্রাই করতে থাকলে ভয়েস চ্যানেল **Offline** দেখাবে (`🔴┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Offline`)।
+2. বট সফলভাবে সার্ভারে জয়েন ও স্পন হওয়ার পরেই কেবল চ্যানেলটি **Online** দেখাবে (`🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online` বা প্লেয়ার থাকলে `Online - X`)।
+৩. সার্ভারে রিয়েল প্লেয়ার কে কয়জন আছে, সেই আপডেট একদম নিখুঁতভাবে রিয়েল-টাইমে ক্যাশ ক্লিয়ার করে আপডেট হতে থাকবে এবং রিট্রাই মেকানিজম সবসময় সচল থাকবে।
+
+নিচে সম্পূর্ণ কোডটি একটিমাত্র কোড ব্লকে দেওয়া হলো:
+
+```javascript
 require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
 const mineflayer = require('mineflayer');
@@ -35,7 +45,7 @@ function createMinecraftBot() {
     }
 
     isBotSpawned = false;
-    updateVoiceChannel(); // সার্ভার অফ বা ডিসকানেক্টেড থাকলে সাথে সাথে অফলাইন দেখাবে
+    updateVoiceChannel(); // সার্ভার না থাকলে বা কানেক্ট না হলে সাথে সাথে অফলাইন দেখাবে
 
     try {
         mcBot = mineflayer.createBot({
@@ -53,7 +63,7 @@ function createMinecraftBot() {
         return;
     }
 
-    // বট সফলভাবে সার্ভারে স্পন হলেই সাথে সাথে অনলাইন আপডেট হবে
+    // বট সফলভাবে সার্ভারে স্পন হলেই কেবল অনলাইন স্ট্যাটাস চালু হবে
     mcBot.once('spawn', () => {
         console.log('[Minecraft AFK Bot] Bot successfully spawned in world!');
         isBotSpawned = true;
@@ -90,11 +100,11 @@ function createMinecraftBot() {
         if (isBotSpawned) updateVoiceChannel();
     });
 
-    // সার্ভার বন্ধ হলে বা কিক খেলে
+    // সার্ভার বন্ধ হলে বা কিক খেলে বা কানেক্ট না হতে পারলে
     mcBot.on('end', (reason) => {
         console.log(`[Minecraft AFK Bot] Disconnected. Reason: ${reason}. Retrying in 10 seconds...`);
         isBotSpawned = false;
-        mcBot = null; // পুরানো বোট ইনস্ট্যান্স পুরোপুরি ক্লিয়ার করে দেওয়া হলো
+        mcBot = null; // পুরানো ইনস্ট্যান্স ক্লিয়ার করা হলো
         updateVoiceChannel(); // তাৎক্ষণিক অফলাইন আপডেট করবে
         
         setTimeout(createMinecraftBot, 10000);
@@ -117,13 +127,14 @@ async function updateVoiceChannel() {
 
     let newName = '';
     
-    // যদি বট স্পন হয়ে থাকে এবং বটের এন্ট্রিতি ওয়ার্ল্ডে থাকে
+    // শর্ত: শুধুমাত্র তখনই অনলাইন দেখাবে যখন বট একচুয়ালি সার্ভারে স্পন অবস্থায় থাকবে
     if (isBotSpawned && mcBot && mcBot.entity) {
       let realCount = 0;
       try {
         const playersObj = mcBot.players || {};
         const playerUsernames = Object.keys(playersObj);
         
+        // বট নিজের নাম বাদ দিয়ে বাকি রিয়েল প্লেয়ারদের গুনবে
         const realPlayers = playerUsernames.filter(
           (username) => username && username.toLowerCase() !== MC_USERNAME.toLowerCase()
         );
@@ -138,7 +149,7 @@ async function updateVoiceChannel() {
         newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online - ${realCount}`;
       }
     } else {
-      // সার্ভার অফলাইন বা বট ডিসকানেক্টেড থাকলে অবিলম্বে অফলাইন দেখাবে
+      // সার্ভার অফলাইন থাকলে, বট কানেক্ট করতে না পারলে বা রিট্রাই করার সময় অফলাইন দেখাবে
       newName = `🔴┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Offline`;
     }
 
