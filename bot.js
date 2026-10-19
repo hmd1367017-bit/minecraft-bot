@@ -32,7 +32,7 @@ function createMinecraftBot() {
     }
 
     isBotSpawned = false;
-    updateVoiceChannel(); // সার্ভার অফ হলে সাথে সাথে অফলাইন আপডেট করবে
+    updateVoiceChannel(); // সার্ভার অফ বা ডিসকানেক্টেড থাকলে সাথে সাথে অফলাইন দেখাবে
 
     mcBot = mineflayer.createBot({
         host: MC_HOST,
@@ -43,13 +43,13 @@ function createMinecraftBot() {
         checkTimeoutInterval: 30000 
     });
 
-    // বট যখনই সফলভাবে সার্ভারে ঢুকে স্পন হবে
+    // বট সফলভাবে সার্ভারে স্পন হলেই ধরে নেব সার্ভার অনলাইন
     mcBot.once('spawn', () => {
         console.log('[Minecraft AFK Bot] Bot successfully spawned in world!');
         isBotSpawned = true;
         updateVoiceChannel(); // সাথে সাথে অনলাইন স্ট্যাটাস আপডেট করবে
 
-        // Anti-AFK Jump (Every 3 minutes)
+        // Anti-AFK Jump (প্রতি ৩ মিনিট পর পর)
         setTimeout(() => {
             setInterval(() => {
                 if (mcBot && mcBot.entity && isBotSpawned) {
@@ -62,7 +62,7 @@ function createMinecraftBot() {
         }, 10000);
     });
 
-    // কেউ সার্ভারে আসলে বা গেলে কাউন্ট আপডেট হবে
+    // কেউ সার্ভারে আসলে বা গেলে
     mcBot.on('playerJoined', () => {
         if (isBotSpawned) updateVoiceChannel();
     });
@@ -71,16 +71,15 @@ function createMinecraftBot() {
         if (isBotSpawned) updateVoiceChannel();
     });
 
-    // সার্ভার বন্ধ হলে বা ডিসকানেক্ট হলে
+    // সার্ভার বন্ধ হলে বা কিক খেলে
     mcBot.on('end', (reason) => {
-        console.log(`[Minecraft AFK Bot] Disconnected. Reason: ${reason}. Retrying in 15 seconds...`);
+        console.log(`[Minecraft AFK Bot] Disconnected. Reason: ${reason}. Retrying in 10 seconds...`);
         isBotSpawned = false;
-        updateVoiceChannel(); // সাথে সাথে অফলাইন আপডেট করবে
+        updateVoiceChannel(); // তাৎক্ষণিক অফলাইন আপডেট করবে
         
-        setTimeout(createMinecraftBot, 15000);
+        setTimeout(createMinecraftBot, 10000);
     });
 
-    // কোনো এরর ঘটলে
     mcBot.on('error', (err) => {
         console.error('[Minecraft AFK Bot] Error encountered:', err.message);
         isBotSpawned = false;
@@ -98,24 +97,27 @@ async function updateVoiceChannel() {
 
     let newName = '';
     
-    // যদি বট সত্যিকার অর্থেই সার্ভারের ভেতরে স্পন হয়ে থাকে
-    if (isBotSpawned && mcBot && mcBot.entity && mcBot.players) {
-      // বট নিজের নাম বাদ দিয়ে আসল প্লেয়ার গুনবে
-      const realPlayers = Object.keys(mcBot.players).filter(
+    // যদি বট স্পন হয়ে থাকে এবং বটের এন্ট্রিতি ওয়ার্ল্ডে থাকে
+    if (isBotSpawned && mcBot && mcBot.entity) {
+      // সেফটি চেকের জন্য প্লেয়ার লিস্ট ফেচ করা
+      const playersObj = mcBot.players || {};
+      const playerUsernames = Object.keys(playersObj);
+      
+      // বট নিজের নাম বা ইউজারনেম বাদ দিয়ে বাকি আসল প্লেয়ারদের গুনবে
+      const realPlayers = playerUsernames.filter(
         (username) => username.toLowerCase() !== MC_USERNAME.toLowerCase()
       );
       
       const realCount = realPlayers.length;
 
-      // যদি বট বাদে আর কেউ না থাকে, তবে শুধু Online দেখাবে (কোনো সংখ্যা বা ০ দেখাবে না)
+      // শর্ত অনুযায়ী ফর্মেট
       if (realCount === 0) {
         newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online`;
       } else {
-        // কেউ থাকলে সংখ্যাসহ দেখাবে
         newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online - ${realCount}`;
       }
     } else {
-      // সার্ভার অফলাইন থাকলে বা বট ডিসকানেক্টেড থাকলে
+      // সার্ভার অফলাইন বা বট ডিসকানেক্টেড থাকলে
       newName = `🔴┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Offline`;
     }
 
@@ -129,12 +131,12 @@ async function updateVoiceChannel() {
   }
 }
 
-// অতিরিক্ত সেফটি লুপ: প্রতি ৩০ সেকেন্ড পর পর চেক করবে
+// প্রতি ১০ সেকেন্ড পর পর সুপার-ফাস্ট চেকার লুপ (সার্ভার অন করার সাথে সাথেই যেন ধরে ফেলতে পারে)
 setInterval(() => {
     if (isBotSpawned && mcBot && mcBot.entity) {
         updateVoiceChannel();
     }
-}, 30000);
+}, 10000);
 
 // ================= [ DISCORD EVENTS ] =================
 client.once('ready', () => {
