@@ -22,7 +22,6 @@ let mcBot = null;
 let isBotSpawned = false;
 let lastStatus = null;
 let reconnectTimer = null;
-let updateDebounceTimer = null;
 
 // ================= [ AFK BOT LOGIC ] =================
 function createMinecraftBot() {
@@ -36,7 +35,7 @@ function createMinecraftBot() {
 
     isBotSpawned = false;
     console.log(`[Minecraft AFK Bot] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
-    triggerUpdate(0); // সাথে সাথে অফলাইন স্ট্যাটাস আপডেট করবে
+    updateVoiceChannel(); // সাথে সাথে অফলাইন স্ট্যাটাস আপডেট করবে
 
     try {
         mcBot = mineflayer.createBot({
@@ -45,7 +44,7 @@ function createMinecraftBot() {
             username: MC_USERNAME,
             version: '1.20.3', 
             auth: 'offline',   
-            checkTimeoutInterval: 10000 // ১০ সেকেন্ডের মধ্যে রেসপন্স না পেলে টাইমআউট ধরবে
+            checkTimeoutInterval: 10000 
         });
     } catch (err) {
         console.error('[Minecraft AFK Bot] Creation Error:', err.message);
@@ -57,7 +56,7 @@ function createMinecraftBot() {
     mcBot.once('spawn', () => {
         console.log('[Minecraft AFK Bot] Bot successfully spawned in world!');
         isBotSpawned = true;
-        triggerUpdate(500);
+        updateVoiceChannel();
 
         // Anti-AFK Jump (প্রতি ৩ মিনিট পর পর)
         setTimeout(() => {
@@ -78,18 +77,18 @@ function createMinecraftBot() {
         }, 10000);
     });
 
-    // কেউ সার্ভারে আসলে বা গেলে
+    // কেউ সার্ভারে আসলে বা গেলে কোনো প্রসেসিং বা ডিলে ছাড়াই ইনস্ট্যান্ট আপডেট কল হবে
     mcBot.on('playerJoined', (player) => {
         if (isBotSpawned) {
-            console.log(`[Player Joined] ${player.username} joined. Processing...`);
-            triggerUpdate(1000);
+            console.log(`[Player Joined] ${player.username} joined. Updating instantly!`);
+            updateVoiceChannel();
         }
     });
 
     mcBot.on('playerLeft', (player) => {
         if (isBotSpawned) {
-            console.log(`[Player Left] ${player.username} left. Processing...`);
-            triggerUpdate(1000);
+            console.log(`[Player Left] ${player.username} left. Updating instantly!`);
+            updateVoiceChannel();
         }
     });
 
@@ -101,7 +100,6 @@ function createMinecraftBot() {
 
     mcBot.on('error', (err) => {
         console.error('[Minecraft AFK Bot] Error encountered:', err.message);
-        // যদি কানেক্ট করার সময় এরর খায়, সাথে সাথে অফলাইন হ্যান্ডেল করবে
         if (!isBotSpawned) {
             handleDisconnect();
         }
@@ -114,7 +112,7 @@ function handleDisconnect() {
         try { mcBot.quit(); } catch (e) {}
         mcBot = null;
     }
-    triggerUpdate(0); // তাৎক্ষণিক অফলাইন আপডেট করবে
+    updateVoiceChannel(); // তাৎক্ষণিক অফলাইন আপডেট করবে
     scheduleReconnect();
 }
 
@@ -123,14 +121,7 @@ function scheduleReconnect() {
     console.log('[Minecraft AFK Bot] Retrying in 5 seconds...');
     reconnectTimer = setTimeout(() => {
         createMinecraftBot();
-    }, 5000); // ৫ সেকেন্ড পর পর ট্রাই করবে
-}
-
-function triggerUpdate(delay = 1000) {
-    if (updateDebounceTimer) clearTimeout(updateDebounceTimer);
-    updateDebounceTimer = setTimeout(() => {
-        updateVoiceChannel();
-    }, delay);
+    }, 5000);
 }
 
 // ================= [ VOICE CHANNEL UPDATER ] =================
@@ -182,12 +173,12 @@ async function updateVoiceChannel() {
   }
 }
 
-// ব্যাকগ্রাউন্ড সেফটি লুপ (প্রতি ১৫ সেকেন্ড পর পর স্ট্যাটাস মিলিয়ে দেখার জন্য)
+// ব্যাকগ্রাউন্ড সেফটি লুপ (প্রতি ২০ সেকেন্ড পর পর জাস্ট স্ট্যাটাস মিলিয়ে দেখার জন্য)
 setInterval(() => {
     if (isBotSpawned) {
-        triggerUpdate(0);
+        updateVoiceChannel();
     }
-}, 15000);
+}, 20000);
 
 // ================= [ DISCORD EVENTS ] =================
 client.once('ready', () => {
