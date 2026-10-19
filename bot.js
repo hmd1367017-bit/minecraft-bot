@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
 const mineflayer = require('mineflayer');
+const net = require('net'); // ✅ সরাসরি পোর্ট চেক করার জন্য
 
 // ================= [ ENV CONFIG ] =================
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
@@ -24,8 +25,34 @@ let lastStatus = null;
 let reconnectTimeout = null;
 let afkInterval = null;
 let updateTimer = null;
+let isServerOnline = false; // ✅ সার্ভারের আসল স্ট্যাটাস ট্র্যাক করার জন্য
 
-const RECONNECT_DELAY = 10000; // ✅ ১০ সেকেন্ড
+const RECONNECT_DELAY = 10000; // ১০ সেকেন্ড
+
+// ================= [ TCP SOCKET PING (Fast Server Check) ] =================
+function checkServerOnline() {
+    return new Promise((resolve) => {
+        const socket = new net.Socket();
+        socket.setTimeout(4000); // ৪ সেকেন্ড টাইমআউট
+
+        socket.on('connect', () => {
+            socket.destroy();
+            resolve(true);
+        });
+
+        socket.on('timeout', () => {
+            socket.destroy();
+            resolve(false);
+        });
+
+        socket.on('error', () => {
+            socket.destroy();
+            resolve(false);
+        });
+
+        socket.connect(MC_PORT, MC_HOST);
+    });
+}
 
 // ================= [ MINECRAFT BOT ] =================
 function createMinecraftBot() {
@@ -37,7 +64,6 @@ function createMinecraftBot() {
 
     console.log(`[Minecraft] Connecting to ${MC_HOST}:${MC_PORT} as ${MC_USERNAME}...`);
     isBotSpawned = false;
-    scheduleUpdate();
 
     mcBot = mineflayer.createBot({
         host: MC_HOST,
@@ -45,97 +71,78 @@ function createMinecraftBot() {
         username: MC_USERNAME,
         version: '1.20.3',
         auth: 'offline',
-        checkTimeoutInterval: 30000
+        checkTimeoutInterval: 20000
     });
 
-    // ✅ spawn প্যাকেট পাওয়ার পর সত্যিকারের সংযোগ যাচাই
     mcBot.once('spawn', () => {
-        console.log('[Minecraft] Spawn packet received — verifying...');
+        console.log('[Minecraft] Spawn packet received — Online!');
+        isBotSpawned = true;
+        isServerOnline = true;
+        scheduleUpdate();
 
-        setTimeout(() => {
-            if (!mcBot || !mcBot.entity || !mcBot.entity.position) {
-                console.log('[Minecraft] Ghost spawn — no entity. Ignoring.');
+        // Anti-AFK jump (প্রতি ৩ মিনিটে)
+        if (afkInterval) clearInterval(afkInterval);
+        afkInterval = setInterval(() => {
+            if (!isBotSpawned || !mcBot) {
+                clearInterval(afkInterval);
+                afkInterval = null;
                 return;
             }
-
-            const pos = mcBot.entity.position;
-            if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y) || !Number.isFinite(pos.z)) {
-                console.log('[Minecraft] Invalid position — Ghost spawn. Ignoring.');
-                return;
-            }
-
-            setTimeout(() => {
-                if (!mcBot || !mcBot.entity || !mcBot.entity.position) {
-                    console.log('[Minecraft] Lost during verification — Offline.');
-                    return;
+            try {
+                if (mcBot && mcBot.entity) {
+                    mcBot.setControlState('jump', true);
+                    setTimeout(() => {
+                        if (mcBot) mcBot.setControlState('jump', false);
+                    }, 500);
                 }
-
-                console.log(`[Minecraft] Confirmed at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) — Online`);
-                isBotSpawned = true;
-                scheduleUpdate();
-
-                // Anti-AFK jump (প্রতি ৩ মিনিটে)
-                setTimeout(() => {
-                    if (!isBotSpawned || !mcBot) return;
-                    afkInterval = setInterval(() => {
-                        if (!isBotSpawned || !mcBot) {
-                            clearInterval(afkInterval);
-                            afkInterval = null;
-                            return;
-                        }
-                        try {
-                            if (mcBot && mcBot.entity) {
-                                mcBot.setControlState('jump', true);
-                                setTimeout(() => {
-                                    if (mcBot) mcBot.setControlState('jump', false);
-                                }, 500);
-                            }
-                        } catch (e) {}
-                    }, 180000);
-                }, 10000);
-            }, 3000);
-        }, 5000);
+            } catch (e) {}
+        }, 180000);
     });
 
     mcBot.on('playerJoined', () => { if (isBotSpawned) scheduleUpdate(); });
     mcBot.on('playerLeft', () => { if (isBotSpawned) scheduleUpdate(); });
 
-    // ✅ ডিসকানেক্ট → Offline
     mcBot.on('end', (reason) => {
         console.log(`[Minecraft] Disconnected: ${reason}. Reconnecting in ${RECONNECT_DELAY / 1000}s...`);
-        isBotSpawned = false;
-        mcBot = null;
-        if (afkInterval) { clearInterval(afkInterval); afkInterval = null; }
-        scheduleUpdate();
-
+        cleanupAndOffline();
         clearTimeout(reconnectTimeout);
         reconnectTimeout = setTimeout(createMinecraftBot, RECONNECT_DELAY);
     });
 
     mcBot.on('error', (err) => {
         console.error('[Minecraft] Error:', err.message);
-        isBotSpawned = false;
-        scheduleUpdate();
+        cleanupAndOffline();
         try { if (mcBot) mcBot.quit(); } catch (e) {}
     });
+}
+
+function cleanupAndOffline() {
+    isBotSpawned = false;
+    isServerOnline = false;
+    if (afkInterval) { clearInterval(afkInterval); afkInterval = null; }
+    scheduleUpdate();
 }
 
 // ================= [ STATUS UPDATER ] =================
 function scheduleUpdate() {
     clearTimeout(updateTimer);
-    updateTimer = setTimeout(updateVoiceChannel, 1000);
+    updateTimer = setTimeout(updateVoiceChannel, 500);
 }
 
 async function updateVoiceChannel() {
     try {
         if (!VOICE_CHANNEL_ID) return;
 
+        // ব্যাকগ্রাউন্ডে সরাসরি পোর্ট চেক করে নিশ্চিত হওয়া সার্ভার আসলেই অন আছে কিনা
+        const onlineStatus = await checkServerOnline();
+        isServerOnline = onlineStatus;
+
         const channel = await client.channels.fetch(VOICE_CHANNEL_ID).catch(() => null);
         if (!channel) return;
 
         let newName;
 
-        if (isBotSpawned && mcBot) {
+        if (isServerOnline && isBotSpawned && mcBot) {
             let realCount = 0;
             try {
                 const playersMap = mcBot.players || {};
@@ -153,16 +160,14 @@ async function updateVoiceChannel() {
             newName = `🔴┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Offline`;
         }
 
-        // ✅ একই নাম হলে setName করবে না
         if (lastStatus === newName) return;
 
         console.log(`[Voice Channel] Setting: "${newName}"`);
         try {
             await channel.setName(newName);
-            lastStatus = newName; // ✅ শুধু সফল হলে আপডেট
+            lastStatus = newName;
             console.log(`[Voice Channel] ✅ Done: "${newName}"`);
         } catch (e) {
-            // ❌ ব্যর্থ হলে lastStatus আপডেট হবে না → পরের বার আবার চেষ্টা করবে
             console.error(`[Voice Channel] ❌ Failed:`, e.message);
         }
     } catch (error) {
@@ -170,8 +175,10 @@ async function updateVoiceChannel() {
     }
 }
 
-// প্রতি ১০ সেকেন্ডে চেক
-setInterval(() => scheduleUpdate(), 10000);
+// প্রতি ১০ সেকেন্ড পর পর মেইন লুপে স্ট্যাটাস রি-চেক করবে যাতে আটকে না থাকে
+setInterval(() => {
+    scheduleUpdate();
+}, 10000);
 
 // ================= [ DISCORD EVENTS ] =================
 client.once('clientReady', () => {
@@ -183,7 +190,7 @@ client.on('messageCreate', (message) => {
   if (message.author.bot) return;
 
   if (message.content === '!status') {
-    if (isBotSpawned && mcBot) {
+    if (isServerOnline && isBotSpawned && mcBot) {
       let realCount = 0;
       try {
         const playersMap = mcBot.players || {};
