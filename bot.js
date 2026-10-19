@@ -35,7 +35,7 @@ function createMinecraftBot() {
     }
 
     isBotSpawned = false;
-    updateVoiceChannel(); // সার্ভার না থাকলে বা কানেক্ট না হলে সাথে সাথে অফলাইন দেখাবে
+    updateVoiceChannel(); // সাথে সাথে অফলাইন স্ট্যাটাস আপডেট করবে
 
     try {
         mcBot = mineflayer.createBot({
@@ -57,10 +57,7 @@ function createMinecraftBot() {
     mcBot.once('spawn', () => {
         console.log('[Minecraft AFK Bot] Bot successfully spawned in world!');
         isBotSpawned = true;
-        
-        setTimeout(() => {
-            updateVoiceChannel();
-        }, 1000);
+        updateVoiceChannel();
 
         // Anti-AFK Jump (প্রতি ৩ মিনিট পর পর)
         setTimeout(() => {
@@ -81,7 +78,7 @@ function createMinecraftBot() {
         }, 10000);
     });
 
-    // কেউ সার্ভারে আসলে বা গেলে
+    // কেউ সার্ভারে আসলে বা গেলে তাৎক্ষণিক আপডেট করবে
     mcBot.on('playerJoined', () => {
         if (isBotSpawned) updateVoiceChannel();
     });
@@ -94,7 +91,7 @@ function createMinecraftBot() {
     mcBot.on('end', (reason) => {
         console.log(`[Minecraft AFK Bot] Disconnected. Reason: ${reason}. Retrying in 10 seconds...`);
         isBotSpawned = false;
-        mcBot = null; // পুরানো ইনস্ট্যান্স ক্লিয়ার করা হলো
+        mcBot = null; 
         updateVoiceChannel(); // তাৎক্ষণিক অফলাইন আপডেট করবে
         
         setTimeout(createMinecraftBot, 10000);
@@ -103,11 +100,12 @@ function createMinecraftBot() {
     mcBot.on('error', (err) => {
         console.error('[Minecraft AFK Bot] Error encountered:', err.message);
         isBotSpawned = false;
+        mcBot = null;
         updateVoiceChannel();
     });
 }
 
-// ================= [ VOICE CHANNEL UPDATER WITH CACHE CLEAR & RETRY ] =================
+// ================= [ VOICE CHANNEL UPDATER ] =================
 async function updateVoiceChannel() {
   try {
     if (!VOICE_CHANNEL_ID) return;
@@ -117,7 +115,7 @@ async function updateVoiceChannel() {
 
     let newName = '';
     
-    // শর্ত: শুধুমাত্র তখনই অনলাইন দেখাবে যখন বট একচুয়ালি সার্ভারে স্পন অবস্থায় থাকবে
+    // যদি বট স্পন হয়ে থাকে এবং বটের এন্ট্রিতি ওয়ার্ল্ডে থাকে
     if (isBotSpawned && mcBot && mcBot.entity) {
       let realCount = 0;
       try {
@@ -139,7 +137,7 @@ async function updateVoiceChannel() {
         newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online - ${realCount}`;
       }
     } else {
-      // সার্ভার অফলাইন থাকলে, বট কানেক্ট করতে না পারলে বা রিট্রাই করার সময় অফলাইন দেখাবে
+      // সার্ভার অফলাইন থাকলে বা বট কানেক্ট না হতে পারলে অবিলম্বে অফলাইন দেখাবে
       newName = `🔴┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Offline`;
     }
 
@@ -150,7 +148,7 @@ async function updateVoiceChannel() {
         console.log(`[Status Counter] Voice channel updated to: "${newName}"`);
       } catch (err) {
         console.error('[Discord Error] Failed to set channel name, will retry:', err.message);
-        lastStatus = null; // ফেইল করলে স্ট্যাটাস রিসেট হবে যাতে পরবর্তী লুপে আবার রিকুয়েস্ট পাঠাতে পারে
+        lastStatus = null; 
       }
     }
   } catch (error) {
@@ -158,7 +156,7 @@ async function updateVoiceChannel() {
   }
 }
 
-// ব্যাকগ্রাউন্ড চেকার লুপ: প্রতি ৫ সেকেন্ড পর পর সব চেক করবে, কখনোই থামবে না
+// ব্যাকগ্রাউন্ড চেকার লুপ: প্রতি ৫ সেকেন্ড পর পর স্ট্যাটাস সিঙ্ক রাখবে
 setInterval(() => {
     updateVoiceChannel();
 }, 5000);
