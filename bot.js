@@ -44,7 +44,7 @@ function createMinecraftBot() {
             username: MC_USERNAME,
             version: '1.20.3', 
             auth: 'offline',   
-            checkTimeoutInterval: 30000 
+            checkTimeoutInterval: 60000 // টাইমআউট ইন্টারভাল বাড়িয়ে দেওয়া হলো যাতে সহজে ডিসকানেক্ট না হয়
         });
     } catch (err) {
         console.error('[Minecraft AFK Bot] Creation Error:', err.message);
@@ -78,7 +78,7 @@ function createMinecraftBot() {
         }, 10000);
     });
 
-    // কেউ সার্ভারে আসলে বা গেলে ট্যাব লিস্ট আপডেট হবে এবং সাথে সাথে ভয়েস চ্যানেল আপডেট করবে
+    // কেউ সার্ভারে আসলে বা গেলে ট্যাব লিস্ট আপডেট হবে
     mcBot.on('playerJoined', (player) => {
         if (isBotSpawned) {
             console.log(`[Player Joined] ${player.username} joined the game.`);
@@ -93,7 +93,7 @@ function createMinecraftBot() {
         }
     });
 
-    // সার্ভার বন্ধ হলে বা কিক খেলে বা কানেক্ট না হতে পারলে
+    // সার্ভার বন্ধ হলে বা রিয়েল ডিসকানেক্ট হলে
     mcBot.on('end', (reason) => {
         console.log(`[Minecraft AFK Bot] Disconnected. Reason: ${reason}. Retrying in 10 seconds...`);
         isBotSpawned = false;
@@ -105,13 +105,11 @@ function createMinecraftBot() {
 
     mcBot.on('error', (err) => {
         console.error('[Minecraft AFK Bot] Error encountered:', err.message);
-        isBotSpawned = false;
-        mcBot = null;
-        updateVoiceChannel();
+        // শুধুমাত্র সাধারণ এররে সাথে সাথে অফলাইন না করে বটের স্পন স্ট্যাটাস বজায় রাখা হলো
     });
 }
 
-// ================= [ VOICE CHANNEL UPDATER (WITH TAB LIST CHECK) ] =================
+// ================= [ VOICE CHANNEL UPDATER ] =================
 async function updateVoiceChannel() {
   try {
     if (!VOICE_CHANNEL_ID) return;
@@ -125,12 +123,10 @@ async function updateVoiceChannel() {
     if (isBotSpawned && mcBot && mcBot.entity) {
       let realCount = 0;
       try {
-        // গেমের ট্যাব লিস্ট বা সার্ভার প্লেয়ার লিস্ট (Tab List) থেকে সরাসরি লাইভ প্লেয়ার ফিল্টার করা
         const playersMap = mcBot.players || {};
         
         const realPlayers = Object.values(playersMap).filter((p) => {
             if (!p || !p.username) return false;
-            // বটের নিজের ইউজারনেম বাদ দেওয়া এবং ভ্যালিড প্লেয়ার চেক করা
             return p.username.toLowerCase() !== MC_USERNAME.toLowerCase();
         });
 
@@ -145,18 +141,19 @@ async function updateVoiceChannel() {
         newName = `🔵┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Online - ${realCount}`;
       }
     } else {
-      // সার্ভার অফলাইন থাকলে বা বট কানেক্ট না হতে পারলে অফলাইন দেখাবে
+      // সার্ভার একচুয়ালি অফলাইন বা বট ডিসকানেক্টেড থাকলে
       newName = `🔴┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Offline`;
     }
 
-    // নাম পরিবর্তন না হলে ডিসকর্ডে রিকোয়েস্ট পাঠানো বন্ধ থাকবে (রেট লিমিট ও বারবার এডিট রোধ করতে)
+    // অত্যন্ত কঠোর চেক: নাম যদি ইতিমধ্যে বর্তমান নামের সাথে হুবহু মিলে যায়, 
+    // তবে ডিসকর্ডে কোনো প্রকার রিকোয়েস্ট পাঠানো হবে না (কোনো স্প্যাম বা বারবার এডিট হবে না)
     if (lastStatus !== newName) {
       try {
         await channel.setName(newName);
         lastStatus = newName;
         console.log(`[Status Counter] Voice channel updated to: "${newName}"`);
       } catch (err) {
-        console.error('[Discord Error] Failed to set channel name, will retry:', err.message);
+        console.error('[Discord Error] Failed to set channel name:', err.message);
       }
     }
   } catch (error) {
@@ -164,10 +161,10 @@ async function updateVoiceChannel() {
   }
 }
 
-// ব্যাকগ্রাউন্ড চেকার লুপ: প্রতি ৫ সেকেন্ড পর পর ট্যাব লিস্টের ডেটা মিলিয়ে স্ট্যাটাস সিঙ্ক রাখবে
+// ব্যাকগ্রাউন্ড চেকার লুপ: প্রতি ১০ সেকেন্ড পর পর চেক করবে, স্ট্যাটাস এক থাকলে হাত দেবে না
 setInterval(() => {
     updateVoiceChannel();
-}, 5000);
+}, 10000);
 
 // ================= [ DISCORD EVENTS ] =================
 client.once('ready', () => {
