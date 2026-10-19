@@ -48,31 +48,41 @@ function createMinecraftBot() {
 
     // ✅ মূল সংশোধন: spawn হলে সরাসরি Online চিহ্নিত করুন, mcBot.entity-এর উপর আর নির্ভর করবেন না
     mcBot.once('spawn', () => {
-        console.log('[Minecraft] Bot successfully spawned — Online');
-        isBotSpawned = true;
-        scheduleUpdate();
+    console.log('[Minecraft] Spawn packet received — waiting to confirm real connection...');
+    
+    // ৫ সেকেন্ড অপেক্ষা করুন, নিশ্চিত করুন যে এটি ভূত সংযোগ নয়
+    setTimeout(() => {
+        // চেক করুন বট এখনও বিদ্যমান, entity বৈধ, এবং সংযোগ বিচ্ছিন্ন হয়নি
+        if (mcBot && mcBot.entity && mcBot.entity.position) {
+            console.log('[Minecraft] Connection confirmed — Online');
+            isBotSpawned = true;
+            scheduleUpdate();
 
-        // সাধারণ Anti-AFK (শুধুমাত্র মাঝে মাঝে লাফ, অতিরিক্ত চলাচল নয়)
-        setTimeout(() => {
-            if (!isBotSpawned || !mcBot) return;
-            afkInterval = setInterval(() => {
-                if (!isBotSpawned || !mcBot) {
-                    clearInterval(afkInterval);
-                    afkInterval = null;
-                    return;
-                }
-                try {
-                    if (mcBot && mcBot.entity) {
-                        mcBot.setControlState('jump', true);
-                        setTimeout(() => {
-                            if (mcBot) mcBot.setControlState('jump', false);
-                        }, 500);
+            // Anti-AFK লজিক (আগের মতোই)
+            setTimeout(() => {
+                if (!isBotSpawned || !mcBot) return;
+                afkInterval = setInterval(() => {
+                    if (!isBotSpawned || !mcBot) {
+                        clearInterval(afkInterval);
+                        afkInterval = null;
+                        return;
                     }
-                } catch (e) {}
-            }, 180000); // প্রতি ৩ মিনিটে একবার
-        }, 10000);
-    });
-
+                    try {
+                        if (mcBot && mcBot.entity) {
+                            mcBot.setControlState('jump', true);
+                            setTimeout(() => {
+                                if (mcBot) mcBot.setControlState('jump', false);
+                            }, 500);
+                        }
+                    } catch (e) {}
+                }, 180000);
+            }, 10000);
+        } else {
+            console.log('[Minecraft] Ghost spawn detected — connection not stable, ignoring.');
+            // Online হিসেবে চিহ্নিত করবেন না, reconnect স্বাভাবিকভাবে end/error হ্যান্ডল করবে
+        }
+    }, 5000); // ৫ সেকেন্ডের বিলম্ব
+});
     mcBot.on('playerJoined', () => { if (isBotSpawned) scheduleUpdate(); });
     mcBot.on('playerLeft', () => { if (isBotSpawned) scheduleUpdate(); });
 
