@@ -17,70 +17,127 @@ let lastStatus = null;
 client.once('ready', () => {
   console.log(`[Player Counter Bot] Logged in successfully as ${client.user.tag}`);
   
-  // প্রথমবার চালু হওয়ার সাথে সাথে একবার চেক করবে, এরপর প্রতি ১০ সেকেন্ড পর পর
-  checkServerAndStatus();
-  setInterval(checkServerAndStatus, 10000);
+  // প্রথমবার চালু হওয়ার সাথে সাথে চেক করবে, এরপর প্রতি ১০ সেকেন্ড পর পর
+  checkMinecraftServer();
+  setInterval(checkMinecraftServer, 10000);
 });
 
-function checkServerAndStatus() {
-  console.log('[Status Check] Checking Minecraft server connection...');
-  
+function checkMinecraftServer() {
   const socket = new net.Socket();
+  let buffer = Buffer.alloc(0);
   let isConnected = false;
 
   socket.setTimeout(4000); // ৪ সেকেন্ড টাইমআউট
 
   socket.connect(MC_PORT, MC_HOST, () => {
     isConnected = true;
-    socket.destroy();
-    // সার্ভার ওপেন আছে, এবার প্লেয়ার কাউন্টের জন্য মাইনক্রাফট প্রোটোকল হ্যান্ডেল করব অথবা সরাসরি স্ট্যাটাস আপডেট করব
-    // যেহেতু এটার পোর্ট খোলা মানে সার্ভার অনলাইন, আমরা সিম্পলি অনলাইন স্ট্যাটাস বা প্লেয়ার কাউন্ট দেখাতে পারি।
-    updateVoiceChannel('online');
+    
+    // Minecraft Server List Ping Handshake Packet
+    const hostBuffer = Buffer.from(MC_HOST, 'utf8');
+    const packetData = Buffer.concat([
+      Buffer.from([0x00]), // Packet ID: Handshake
+      writeVarInt(47),     // Protocol Version
+      writeVarInt(hostBuffer.length),
+      hostBuffer,
+      Buffer.from(toBytes(MC_PORT, 2)), // Port
+      Buffer.from([0x01])  // Next State: 1 (Status)
+    ]);
+
+    const handshake = Buffer.concat([writeVarInt(packetData.length), packetData]);
+    const request = Buffer.from([0x01, 0x00]); // Request Packet
+
+    socket.write(Buffer.concat([handshake, request]));
+  });
+
+  socket.on('data', (data) => {
+    buffer = Buffer.concat([buffer, data]);
+    try {
+      const packetLength = readVarInt(buffer);
+      if (buffer.length < packetLength.length + packetLength.value) return;
+
+      const jsonString = buffer.toString('utf8', packetLength.length + 1);
+      const jsonResponse = JSON.parse(jsonString);
+
+      const onlinePlayers = jsonResponse.players && typeof jsonResponse.players.online === 'number' 
+        ? jsonResponse.players.online 
+        : 0;
+
+      // আপনার কাঙ্ক্ষিত ফরম্যাট: Online - সংখ্যা
+      updateVoiceChannel(`🔵┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : Online - ${onlinePlayers}`);
+      socket.destroy();
+    } catch (e) {
+      // পার্সিং এড়ানোর ক্ষেত্রে
+    }
   });
 
   socket.on('error', (err) => {
     if (!isConnected) {
       socket.destroy();
-      updateVoiceChannel('offline');
+      updateVoiceChannel(`🔴┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : Offline`);
     }
   });
 
   socket.on('timeout', () => {
     if (!isConnected) {
       socket.destroy();
-      updateVoiceChannel('offline');
+      updateVoiceChannel(`🔴┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : Offline`);
     }
   });
 }
 
-async function updateVoiceChannel(status) {
+async function updateVoiceChannel(newName) {
   try {
     const channel = await client.channels.fetch(VOICE_CHANNEL_ID);
-    if (!channel) {
-      console.error(`[Error] Voice channel with ID ${VOICE_CHANNEL_ID} was not found!`);
-      return;
-    }
-
-    let newName = '';
-    if (status === 'online') {
-      // সার্ভার অন থাকলে আপাতত সাধারণ অনলাইন ইন্ডিকেটর বা প্লেয়ার কাউন্ট দেখাবে
-      newName = `🔵┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : Online`;
-    } else {
-      newName = `🔴┊𝐌𝐂-𝐏𝐋𝐀𝐘𝐄𝐑 : Offline`;
-    }
+    if (!channel) return;
 
     if (lastStatus !== newName) {
       await channel.setName(newName);
       lastStatus = newName;
-      console.log(`[Success] Voice channel name updated to: "${newName}"`);
+      console.log(`[Success] Voice channel updated to: "${newName}"`);
     }
   } catch (error) {
     console.error('[Discord Error] Failed to update voice channel:', error.message);
   }
 }
 
+// Helper Functions for Minecraft Protocol Handling
+function writeVarInt(value) {
+  const bytes = [];
+  while (true) {
+    if ((value & ~0x7F) === 0) {
+      bytes.push(value);
+      break;
+    }
+    bytes.push((value & 0x7F) | 0x80);
+    value >>>= 7;
+  }
+  return Buffer.from(bytes);
+}
+
+function readVarInt(buffer) {
+  let numRead = 0;
+  let result = 0;
+  let read;
+  do {
+    read = buffer[numRead];
+    result |= (read & 0x7F) << (7 * numRead);
+    numRead++;
+    if (numRead > 5) throw new Error('VarInt is too big');
+  } while ((read & 0x80) === 0x80);
+  return { value: result, length: numRead };
+}
+
+function toBytes(number, bytes) {
+  const buf = new Array(bytes);
+  for (let i = bytes - 1; i >= 0; i--) {
+    buf[i] = number & 0xff;
+    number = number >> 8;
+  }
+  return buf;
+}
+
 if (!DISCORD_TOKEN) {
-  console.error('[Fatal Error] DISCORD_TOKEN is missing in Environment Variables!');
+  console.error('[Fatal Error] DISCORD_TOKEN is missing!');
   process.exit(1);
 }
 
