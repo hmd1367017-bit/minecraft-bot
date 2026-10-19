@@ -22,7 +22,7 @@ let mcBot = null;
 let isBotSpawned = false;
 let lastStatus = null;
 let reconnectTimer = null;
-let updateDebounceTimer = null; // ফ্লিকারিং রোধ করার জন্য ডিবাউন্স টাইমার
+let updateDebounceTimer = null;
 
 // ================= [ AFK BOT LOGIC ] =================
 function createMinecraftBot() {
@@ -45,7 +45,7 @@ function createMinecraftBot() {
             username: MC_USERNAME,
             version: '1.20.3', 
             auth: 'offline',   
-            checkTimeoutInterval: 60000 
+            checkTimeoutInterval: 10000 // ১০ সেকেন্ডের মধ্যে রেসপন্স না পেলে টাইমআউট ধরবে
         });
     } catch (err) {
         console.error('[Minecraft AFK Bot] Creation Error:', err.message);
@@ -57,7 +57,7 @@ function createMinecraftBot() {
     mcBot.once('spawn', () => {
         console.log('[Minecraft AFK Bot] Bot successfully spawned in world!');
         isBotSpawned = true;
-        triggerUpdate(500); // স্পন হওয়ার পর ডেটা লোড হতে সামান্য সময় দিয়ে আপডেট
+        triggerUpdate(500);
 
         // Anti-AFK Jump (প্রতি ৩ মিনিট পর পর)
         setTimeout(() => {
@@ -78,11 +78,11 @@ function createMinecraftBot() {
         }, 10000);
     });
 
-    // কেউ সার্ভারে আসলে বা গেলে ডিবাউন্স করে আপডেট কল হবে (ফ্লিকারিং মুক্ত)
+    // কেউ সার্ভারে আসলে বা গেলে
     mcBot.on('playerJoined', (player) => {
         if (isBotSpawned) {
             console.log(`[Player Joined] ${player.username} joined. Processing...`);
-            triggerUpdate(1000); // ১ সেকেন্ড অপেক্ষা করবে যাতে সব প্যাকেট একসাথে রিসিভ হয়
+            triggerUpdate(1000);
         }
     });
 
@@ -93,29 +93,39 @@ function createMinecraftBot() {
         }
     });
 
-    // সার্ভার বন্ধ হলে বা ডিসকানেক্ট হলে
+    // সার্ভার বন্ধ হলে বা ডিসকানেক্ট হলে তাৎক্ষণিক হ্যান্ডেল করবে
     mcBot.on('end', (reason) => {
         console.log(`[Minecraft AFK Bot] Disconnected. Reason: ${reason}.`);
-        isBotSpawned = false;
-        mcBot = null;
-        triggerUpdate(0); // সাথে সাথে অফলাইন দেখাবে
-        scheduleReconnect();
+        handleDisconnect();
     });
 
     mcBot.on('error', (err) => {
         console.error('[Minecraft AFK Bot] Error encountered:', err.message);
+        // যদি কানেক্ট করার সময় এরর খায়, সাথে সাথে অফলাইন হ্যান্ডেল করবে
+        if (!isBotSpawned) {
+            handleDisconnect();
+        }
     });
+}
+
+function handleDisconnect() {
+    isBotSpawned = false;
+    if (mcBot) {
+        try { mcBot.quit(); } catch (e) {}
+        mcBot = null;
+    }
+    triggerUpdate(0); // তাৎক্ষণিক অফলাইন আপডেট করবে
+    scheduleReconnect();
 }
 
 function scheduleReconnect() {
     if (reconnectTimer) clearTimeout(reconnectTimer);
-    console.log('[Minecraft AFK Bot] Retrying in 10 seconds...');
+    console.log('[Minecraft AFK Bot] Retrying in 5 seconds...');
     reconnectTimer = setTimeout(() => {
         createMinecraftBot();
-    }, 10000);
+    }, 5000); // ৫ সেকেন্ড পর পর ট্রাই করবে
 }
 
-// ডিবাউন্সড আপডেট ফাংশন (ঘনঘন রিকোয়েস্ট বা ফ্লিকারিং আটকানোর জন্য)
 function triggerUpdate(delay = 1000) {
     if (updateDebounceTimer) clearTimeout(updateDebounceTimer);
     updateDebounceTimer = setTimeout(() => {
@@ -138,7 +148,6 @@ async function updateVoiceChannel() {
       try {
         const playersMap = mcBot.players || {};
         
-        // নিখুঁত ফিল্টার: বটের নাম বাদ দিয়ে এবং যে প্লেয়ারদের gamemode বা latency একটিভ আছে তাদের গণনা করা
         const realPlayers = Object.values(playersMap).filter((p) => {
             if (!p || !p.username) return false;
             if (p.username.toLowerCase() === MC_USERNAME.toLowerCase()) return false;
@@ -159,7 +168,6 @@ async function updateVoiceChannel() {
       newName = `🔴┊𝐌𝐂-𝐒𝐄𝐑𝐕𝐄𝐑 : Offline`;
     }
 
-    // নাম হুবহু এক থাকলে ডিসকর্ডে হাত দেবে না, পরিবর্তন হলেই কেবল এডিট করবে
     if (lastStatus !== newName) {
       try {
         await channel.setName(newName);
@@ -174,12 +182,12 @@ async function updateVoiceChannel() {
   }
 }
 
-// ব্যাকগ্রাউন্ড সেফটি লুপ (প্রতি ৩০ সেকেন্ড পর পর জাস্ট স্ট্যাটাস মিলিয়ে দেখার জন্য)
+// ব্যাকগ্রাউন্ড সেফটি লুপ (প্রতি ১৫ সেকেন্ড পর পর স্ট্যাটাস মিলিয়ে দেখার জন্য)
 setInterval(() => {
     if (isBotSpawned) {
         triggerUpdate(0);
     }
-}, 30000);
+}, 15000);
 
 // ================= [ DISCORD EVENTS ] =================
 client.once('ready', () => {
